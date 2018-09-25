@@ -193,6 +193,11 @@ as you progress
 5. write the smallest application code possible to pass the unit test
 6. iterate - adding unit tests + application code cycles until the FT passes, and then adding more FT's and repeating.
 
+--
+double-loop.png
+https://www.obeythetestinggoat.com/book/chapter_philosophy_and_refactoring.html
+--
+
 why - FT ensuring that stuff works as user expects and unit tests ensuring that out internals work as our programmers expect. small iterations ensure that as much of the application code as possible is "covered" by the tests (and that we dont sneak in a potential bug somehow by writing a complex method that we might not be testing thoroughly but passes the tests anyways)
 
 > Functional tests should help you build an application with the right functionality, and guarantee you never accidentally break it. Unit tests should help you to write code that’s clean and bug free.
@@ -240,7 +245,55 @@ so in this case the empty string regex ^$ maps to a home_page view, which is jus
   def home_page(request):
     return HttpResponse('<html><title>To-Do lists</title></html>')
 
-## Chapter 4
+## Chapter 4 more of the same
+
+philisoly
+writing tests can be annoying for simple changes that seem trivial, but the idea is that, generally, complexity sneaks up over time, and you wont always be fresh or remember everything thats going on, and tests serve as a way to save your progress so to speak. the metaphor is pulling buckets of water from a well, its easy at first but eventually you get tired and the deeper the water is the hard the task becomes, and tests serve as a ratchet to ensure that you never slip backwards. writing tests for every single change is tedious, but its the only way to ensure that your not subjectively trying to guess when something is complex enough to warrant testing, which is a recipe for failure. additionally, if your writing tests for trivial changes, the tests themselves should be relatvialy trivial and thus not too bad to implement.
+
+Selenium nuts and bolts
+
+basically a browser driver, again kind of like simulating a user. has helpful methods like
+find_element_by_id - find an element on the page
+send_keys - type in input elements
+
+more django
+
+uses templates like other frameworks. example
+
+<html>
+    <title>To-Do lists</title>
+</html>
+
+these represent the views in MVC. so the previous example view function could be replaced with
+
+from django.shortcuts import render
+
+def home_page(request):
+    return render(request, 'home.html')
+
+where home.html is a template html file. django automatically looks for files in `templates` directories.
+
+--
+like other frameworks, its possible to pass variables into a template and have them render dynamic content. example:
+--
+
+One unintuitive thing with django is that you have to register your apps, by adding the app to the INSTALLED_APPS variable in the settings.py file. I'm not sure why creating the app initially with startapp doesnt automatically do this.
+
+Django has a [test client](https://docs.djangoproject.com/en/1.11/topics/testing/tools/#the-test-client) which acts like a dummy web browser, a little like selenium. but unlike selenium its better suited for things like establishing that the correct template is being used in the correct context, and less suited for inspecting rendered html or webpage behavior. so its good for some unit tests but the FTs should stick with selenium. example:
+
+    def test_home_page_returns_correct_html(self):
+        response = self.client.get('/')
+        self.assertTemplateUsed(response, 'home.html')
+
+
+TDD is super nice for refactoring because you can ensure that nothing was broken during the changes.
+
+> When refactoring, work on either the code or the tests, but not both at once.
+
+This is definitely a mistake ive made in the past where I start out refactoring something, and then along the way I just group in some small changes I wanted to make, and then something somewhere else breaks so i just fix that real quick, but that breaks somethign else, and then i have multiple changes and at least one bug and its all mixed in with the refactor. best to do it slowly peice by peice.
+
+### Chapter 5 databases & object relational mapping
+
 
 
 ## Command cheat sheet
