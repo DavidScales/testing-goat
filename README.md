@@ -550,6 +550,85 @@ In the example app this refactor shaved a couple seconds off the test time
 
 ### 7
 
+Philosophy
+* minimize upfront design because it takes time, and the end product almost always significantly deviates away from the design. It's more direct to have a minimal design, and iterate as problems arise or features become truly important.
+* This spills over into the idea of YAGNI (You ain't gonna need it), which is the reality that most often, a lot of features and code simple end up unused and onyl serve to add complexity to the application. Better to start with the minimum set of functionality, as expand only as needed, to ensure that there is never excess.
+* Representational State Transfer (REST) is a design approach for web API's, and can be useful inspiration (even if we don't follow it rigidly). For example
+
+> REST suggests that we have a URL structure that matches our data structure, in this case lists and list items.
+
+So each list can have its own URL
+
+    /lists/<list identifier>/
+
+new lists could be created with `/lists/new` and new items with `/lists/<list identifier>/add_item` (not exactly REST, which would probably use PUT or POST for these, but approximate)
+
+is a good way to structure our site's API.
+
+
+#### foreign key relationships
+
+    from django.db import models
+
+    class List(models.Model):
+        pass
+
+    class Item(models.Model):
+        text = models.TextField(default='')
+        list = models.ForeignKey(List, default=None)
+
+
+#### capturing parameters from URLs
+
+urlpatterns = [
+    url(r'^$', views.home_page, name='home'),
+    url(r'^lists/new$', views.new_list, name='new_list'),
+    url(r'^lists/(.+)/$', views.view_list, name='view_list'),
+]
+
+(.+) is a capture group. captured text gets passed to view_list as an arg
+
+def view_list(request, list_id):
+    [...]
+
+But this regex is greedy! it will also respond for /lists/1/more_stuff_here/
+
+
+#### app urls vs project urls
+
+before I had all the urls in urls.py file of the project (superlists/urls.py). But a better pattern is to move the app urls (url's for "list") into a urls.py file in the app itself (list/urls.py), and then to "include" the app urls into the project.
+
+So that would look more like this:
+
+superlists/urls.py (project)
+
+    from django.conf.urls import include, url
+    from lists import views as list_views
+    from lists import urls as list_urls
+
+    urlpatterns = [
+        url(r'^$', list_views.home_page, name='home'),
+        url(r'^lists/', include(list_urls)),
+    ]
+
+At the project level, i listen for a single url for the list app, which in this case is all URL's prefixed with `lists/`. The app url's are then `include`d. In other words, at the project level, we just listen for url's that start with `list/`, and then pass along those url's to the app level.
+
+In the app, we just check the remainder of the url (after `list/`), and respond like were originally:
+
+list/urls.py (app)
+
+    from django.conf.urls import url
+    from lists import views
+
+    urlpatterns = [
+        url(r'^new$', views.new_list, name='new_list'),
+        url(r'^(\d+)/$', views.view_list, name='view_list'),
+        url(r'^(\d+)/add_item$', views.add_item, name='add_item'),
+    ]
+
+In this configuration there is less duplication, and the url handling is more modular. the project level is just looking for which app to hand a request to, and the app itself handles the request.
+
+
 
 ## Command cheat sheet
 
