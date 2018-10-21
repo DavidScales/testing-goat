@@ -82,6 +82,7 @@ The following Django + selenium files can be git ignored (added to `.gitignore`)
 * `virtualenv` - the Python virtual environment config files
 * `__pycache__` - probably some kind of Python runtime cache
 * `*.pyc`- probably some kind of Python runtime cache
+* `/static` - from Ch8, copies of static files for serving in production
 
 
 ## Chapter 2 - more philosophy & Python's unittest
@@ -655,6 +656,114 @@ In the app, we just check the remainder of the url (after `list/`), and respond 
     ]
 
 In this configuration there is less duplication, and the URL handling is more modular. The project level is just looking for which app to hand a request to, and the app itself handles the request.
+
+## Chapter 8 - Testing layout, styling, and static files
+
+### Testing aesthetics
+
+* Testing aesthetics is pretty much like testing constants, so it doesn't make sense to test in detail
+* What you really want is a "smoketest", to make sure that your site is being styled and, for example, nothing has gone wrong with the loading of static assets like CSS sheets
+* You could also probably test important JavaScript heavy styling
+
+Example smoketest - make sure CSS loads by checking approximate page style:
+
+    class NewVisitorTest(LiveServerTestCase):
+        ...
+
+        def test_layout_and_styling(self):
+            # Edith goes to the home page
+            self.browser.get(self.live_server_url)
+            self.browser.set_window_size(1024, 768)
+
+            # She notices the input box is nicely centered
+            inputbox = self.browser.find_element_by_id('id_new_item')
+            self.assertAlmostEqual(
+                inputbox.location['x'] + inputbox.size['width'] / 2,
+                512,
+                delta=10
+            )
+
+Here we add a test case which sets the browser window size and checks that the main input is centered (which is what our styling does). `assertAlmostEqual` is used for rounding errors, scrollbars, etc.
+
+### Template inheritance in Django
+
+Just like I would expect - reduces redundancy and makes changes way easier since you don't have to update multiple pages that share the same basic structure.
+
+Create a base template with "blocks" for other templates to inject content:
+
+    <!-- lists/templates/base.html -->
+
+    <html>
+      <head>
+        <title>To-Do lists</title>
+      </head>
+
+      <body>
+        <h1>{% block header_text %}{% endblock %}</h1>
+        <form method="POST" action="{% block form_action %}{% endblock %}">
+          <input name="item_text" id="id_new_item" placeholder="Enter a to-do item" />
+          {% csrf_token %}
+        </form>
+        {% block table %}
+        {% endblock %}
+      </body>
+    </html>
+
+Then other templates can simple `extend` the base template by injecting their specific content into the blocks:
+
+    <!-- lists/templates/home.html -->
+
+    {% extends 'base.html' %}
+
+    {% block header_text %}Start a new To-Do list{% endblock %}
+
+    {% block form_action %}/lists/new{% endblock %}
+
+### Static files in Django
+
+> Django, and indeed any web server, needs to know two things to deal with static files:
+1. How to tell when a URL request is for a static file, as opposed to for some HTML that’s going to be served via a view function
+2. Where to find the static file the user wants
+
+For #1, Django has a URL "prefix" to identify static files. The default is `/static/`, and is defined in `settings.py`:
+
+    # Static files (CSS, JavaScript, Images)
+    # https://docs.djangoproject.com/en/1.11/howto/static-files/
+
+    STATIC_URL = '/static/'
+
+I had expected that this would be the end of static file configuration, since I've effectively mapped all URLs with `/static/` to files that I expect to server statically. However it's apparently a bit more complicated, and here's what I learned from the [docs](https://docs.djangoproject.com/en/1.7/howto/static-files/#staticfiles-testing-support):
+
+* Django uses the `django.contrib.staticfiles` app to manage static files. This app is (or should be) registered in the `INSTALLED_APPS` variable of the `settings.py` file. Django (or maybe `django.contrib.staticfiles` specifically) looks in `setting.py`'s `STATIC_URL` for the name of the static files directory, which is `/static/` by default.
+* You can then reference static files in the app as hard-coded values like `/static/my_app/myexample.jpg`, or ideally using the [static template tag](https://docs.djangoproject.com/en/1.7/howto/static-files/#staticfiles-testing-support) to build a URL dynamically. TODO: The book isn't cover the latter, so I'll come back to that later.
+* In either case the static files are stored in `my_app/static/`, so for example `my_app/static/my_app/myexample.jpg`
+  * This URL is interesting because it has a nested directory structure. This is because when looking for files, Django simply returns the first file with a matching name. So if another app had a similarly named file, like:
+
+        app_one/static/myexample.jpg
+        app_two/static/myexample.jpg
+
+    You could get the wrong file. Thats why you need namespacing, like:
+
+        app_one/static/app_one/myexample.jpg
+        app_two/static/app_two/myexample.jpg
+
+Anyways, apparently all this configuration so far doesn't actually serve any static files...
+
+* It seems that in production, there is a `STATIC_ROOT` directory (set in `settings.py`) where Django can collect static files for serving. The `collectstatic` command is used to copy files from all the apps' `/static/` folders to the `STATIC_ROOT`. Then you can use a web server to serve the files from that directory.
+  * Why?
+  > using Python to serve raw files is slow and inefficient, and a web server like Apache or Nginx can do this all for you. You might even decide to upload all your static files to a CDN, instead of hosting them yourself. For these reasons, you want to be able to gather up all your static files from inside their various app folders, and copy them into a single location, ready for deployment.
+  * example using relative paths: `STATIC_ROOT = os.path.join(BASE_DIR, 'static')`
+
+* During development
+  * the dev server (`runserver`) will search out the static files automatically when `DEBUG=True`.
+  * However, unlike the dev server, `LiveServerTestCase` assumes static content has been collected under `STATIC_ROOT`, and does not use the `staticfiles` app to search for `/static/` directories.
+    * So there is a separate app to get around this - `django.contrib.staticfiles.testing.StaticLiveServerTestCase`, which behaves like the dev server, and serves the static files without having to collect them under `STATIC_ROOT`.
+
+* Aside: You can also have a static files directory outside of your apps for non-app-specific resources.
+
+TODO:
+* checkout SASS & LESS
+* checkout the [static template tag](https://docs.djangoproject.com/en/1.7/howto/static-files/#staticfiles-testing-support)
 
 ## Command cheat sheet
 
