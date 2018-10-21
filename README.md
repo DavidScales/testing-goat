@@ -1,6 +1,6 @@
 # Obey the Testing Goat
 
-This repo contains my code and notes from working through the excellent [Obey the Testing Goat book](https://www.obeythetestinggoat.com/) on Test-Driven Development with Python.
+This repo contains my code and (rough) notes from working through the excellent [Obey the Testing Goat book](https://www.obeythetestinggoat.com/) on Test-Driven Development with Python.
 
 ## Dependencies
 
@@ -31,24 +31,24 @@ Install Django and Selenium in the virtual environment:
 pip install "django<1.12" "selenium<4"
 ```
 
-WHAT ARE THESE FOR
+[Django](https://www.djangoproject.com/) is a Python web framework. [Selenium](https://www.seleniumhq.org/) is many things, but practically speaking, it's a library for driving web browsers.
 
-## Getting started / chapter 1
+## Chapter 1 - getting started
 
-Looks like the philosophy here is to always start with a test, which makes sense... An we are following the wisdom of the Testing Goat
+### Philosophy and first test
 
-> The Testing Goat is the unofficial mascot of TDD in the Python testing community
+Looks like the basic Test Driven Development (TDD) philosophy is to always start with a test, which makes sense...
 
 General process
-1. write a test for what i want to do
-2. run it and confirm that if fails as expected (important because it provides some confidence that we wrote the test correctly)
+1. write a test for what I want to do
+2. run it and confirm that if fails as expected (this is important because it provides some confidence that we wrote the test correctly)
 3. *then* write application code to do the thing I want
 
-and along the way being sure to take small modular steps, so things never get out of hand
+and along the way being sure to take small modular steps, so things never get out of hand.
 
-Start at the very beginning, even before setting up the framework boilerplate configuration. start with a functional test to spin up a browser instance using selenium, and check that Django is installed and that the dev server runs:
+Start at the very beginning, even before setting up the framework boilerplate configuration. Start with a functional test to spin up a browser instance using selenium, and check that Django is installed and that the dev server runs. For example:
 
-aside: functional tests vs unit tests
+    # functional_test.py
 
     from selenium import webdriver
 
@@ -57,137 +57,142 @@ aside: functional tests vs unit tests
 
     assert 'Django' in browser.title
 
-We run the test and get the expected failure ("Unable to connect"), which means we can start writing application code.
+We run the test (`python functional_test.py`) and get the expected failure "Unable to connect", which means we can start writing application code.
+
+Selenium also has a ton of useful methods like:
+* `find_element_by_id` - find an element on the page
+* `send_keys` - type in input elements
+* etc.
+
+### Configuring Django boilerplate
 
 Create a Django "project", which represents the top level collection of files for our application:
 
-```
-django-admin.py startproject superlists .
-```
+    django-admin.py startproject superlists .
 
-This creates the Django boilerplate files & directory structure, along with the manage.py file that we use to do django stuffs.
+This creates the Django boilerplate files & directory structure, along with the manage.py file that we use to do Django stuff. For example, starting Django's dev server:
 
-WHAT ARE THESE FILES? (MAYBE)
+    python manage.py runserver
 
-such as starting the django dev server
+Which allows the first test to pass.
 
-python manage.py runserver
+The following Django + selenium files can be git ignored (added to `.gitignore`):
+* `db.sqlite3` - the file that represents the default sqlite database
+* `geckodriver.log` - probably a log for selenium driver errors
+* `virtualenv` - the Python virtual environment config files
+* `__pycache__` - probably some kind of Python runtime cache
+* `*.pyc`- probably some kind of Python runtime cache
 
-which allows us to pass the first test.
 
-finally Things to add to **.gitignore**:
+## Chapter 2 - more philosophy & Python's unittest
 
-```
-db.sqlite3
-geckodriver.log
-virtualenv
-__pycache__
-*.pyc
-```
+### Functional tests and user stories
 
-WHAT ARE THESE
-
-### chapter 2, more philosphy & unittest
+What are "functional" (FT) tests?
 
 > Tests that use Selenium let us drive a real web browser, so they really let us see how the application functions from the user’s point of view. That’s why they’re called functional tests.
 
 > This means that an FT can be a sort of specification for your application. It tends to track what you might call a User Story, and follows how the user might work with a particular feature and how the app should respond to them.
 
-aka Acceptance tests, end-to-end tests, black box test
+FT's are AKA Acceptance tests, end-to-end tests, and black box tests.
 
-philosophy here:
-1. start by using comments to create a "User Story" for a Minimum Viable Product (MVP) - the simplest app that is useful.
-2. create functional tests to basically follow the user story. so for example
-
-    from selenium import webdriver
-
-    browser = webdriver.Firefox()
-
-    # Edith has heard about a cool new online to-do app. She goes
-    # to check out its homepage
-    browser.get('http://localhost:8000')
-
-    # She notices the page title and header mention to-do lists
-    assert 'To-Do' in browser.title
-
-    ...
-
-comments are user story, code uses selenium to simulate a user.
-
---
-
-Aside on comments - comments should *typically* be used to describe why some code does something, particularly when its not obvious. for example:
-
-    //
-
-or the classic:
-
-    // dont change this because everything breaks and we dont know why
-
-but in in general your code itself should describe *what* is happening. this should happen with variable and function names, code structure, etc. Because reading code is really important and writing readable code is almost never worse performing, so you might as well write it well. Additionally comments are annoying to maintain, because they need to always be updated with the code and will eventually become out of sync. Its subjective, but sometimes it makes more sense even to write code that is less concise if its more readable, IMO. for example
-
-    //
-
---
-
-#### Python Standard Library's unittest Module
-
-theres of course some common patterns that naturally evolve from testing, like logging details of failed tests, setting up and tearing down browser instances, etc. Python's unittest module has a lot of this built in
-
-LATER I USE DJANGO's WHICH INHEREITS FORM UNITTEST
-LiveServerTestCase
-
-example
+Expanding the TDD philosophy:
+1. start development by using comments to create a "User Story" for a Minimum Viable Product (MVP) - the simplest app that is useful.
+2. create functional tests to basically follow the user story. So for example:
 
 ```
 from selenium import webdriver
-import unittest
 
-  class NewVisitorTest(unittest.TestCase):
+browser = webdriver.Firefox()
 
-      def setUp(self):
-          self.browser = webdriver.Firefox()
+# Edith has heard about a cool new online to-do app. She goes
+# to check out its homepage
+browser.get('http://localhost:8000')
 
-      def tearDown(self):
-          self.browser.quit()
+# She notices the page title and header mention to-do lists
+assert 'To-Do' in browser.title
 
-      def test_can_start_a_list_and_retrieve_it_later(self):
-          # Edith has heard about a cool new online to-do app. She goes
-          # to check out its homepage
-          self.browser.get('http://localhost:8000')
-
-          # She notices the page title and header mention to-do lists
-          self.assertIn('To-Do', self.browser.title)
-          self.fail('Finish the test!')
-
-  if __name__ == '__main__':
-      unittest.main(warnings='ignore')
+...
 ```
 
-* Tests are organize into classes inheriting fomr unittest.TestCase
-* any method whose name starts with "test" will be run by the test runner, which is called with unittest.main()
-* setUp and tearDown run before & after each test to ensure each test starts fresh (uneffected by other tests) and browser instances are cleaned up, etc.
-* unittest provides helper methods like self.fail, self.assertIn, etc.
+Comments make up the user story, and selenium is used to simulate a user.
 
-this logs a nicer formatted & more detailed report, handles cleanup, lets us use helpful methods, etc.
+### A comment on comments
 
-### chapter 3, django basics and unit tests
+Comments should typically be used to describe *why* some code does something, rather than what the code does, particularly when the code's purpose is not obvious. For example:
 
+    ## We use a new browser session to make sure that no information
+    ## of Edith's is coming from cookies, etc.
+    self.browser.quit()
 
-Django structures code into "apps", on the assumption that this will make them more modular and reusable. Apps are created with the manage.py startapp command, e.g.:
+Where it's not obvious why you're quitting the browser instance. Or the classic:
 
-```
-python manage.py startapp lists
-```
+    # dont change this because everything breaks and we dont know why
 
-which creates a folder for the app with basic boilerplate. One thing I found interesting is that app folders are on the same level with project folders (so lists & superlists are siblings), rather than apps living inside projects. Doesn't really matter, just though it was kind of weird since a project is theoretically made up of a collection of apps.
+But in in general your code itself should describe *what* is happening. This should be communicated with variable and function names, code structure, etc. Because reading code is really important and writing readable code is almost never worse performing, so you might as well write it well.
 
-#### Unit tests
+Additionally comments are annoying to maintain, because they need to always be updated with the code and will eventually become out of sync. It's subjective, but sometimes it makes more sense even to write code that is less concise if it's more readable, in my opinion. For example:
+
+    // Not sure what name really means or how I got it?
+    const name = retrieve('/data/users?q=income').people.filter(person => person.age > 100)[0].name;
+
+    // Ah I see
+    const usersByIncome = retrieve('/data/users?q=income');
+    const centenarianByIncome = usersByIncome.people.filter(person => person.age > 100);
+    const highestIncomeCentenarian = centenarianByIncome[0];
+    const highestIncomeCentenarianName = highestIncomeCentenarian.name;
+
+### Python Standard Library's unittest Module
+
+There's of course some common patterns that naturally evolve from testing, like logging details of failed tests, setting up and tearing down browser instances, etc. Python's `unittest` module has a lot of this functionality built in. For example, in the following:
+
+    from selenium import webdriver
+    import unittest
+
+      class NewVisitorTest(unittest.TestCase):
+
+          def setUp(self):
+              self.browser = webdriver.Firefox()
+
+          def tearDown(self):
+              self.browser.quit()
+
+          def test_can_start_a_list_and_retrieve_it_later(self):
+              # Edith has heard about a cool new online to-do app. She goes
+              # to check out its homepage
+              self.browser.get('http://localhost:8000')
+
+              # She notices the page title and header mention to-do lists
+              self.assertIn('To-Do', self.browser.title)
+              self.fail('Finish the test!')
+
+      if __name__ == '__main__':
+          unittest.main(warnings='ignore')
+
+* Tests are organize into classes inheriting from `unittest.TestCase`
+* Any method whose name starts with "test" will be run by the test runner, which is called with `unittest.main()`
+* `setUp` and `tearDown` run before & after each test to ensure each test starts fresh (unaffected by other tests) and browser instances are cleaned up, etc.
+* `unittest` provides helper methods like `self.fail`, `self.assertIn`, etc.
+
+Note: Django has it's own test runner and class, which inherits from `unittest`. See chapter 5 & 6 notes.
+
+## Chapter 3 - Django basics and unit tests
+
+### Django basics
+
+Django structures code into "apps", on the assumption that this will make them more modular and reusable. Apps are created with the `manage.py` `startapp` command, e.g.:
+
+    python manage.py startapp lists
+
+which creates a folder for the app with basic boilerplate.
+
+One thing I found interesting is that app folders are on the same level with project folders (so `lists` & `superlists` are siblings), rather than apps living inside projects. Doesn't really matter, just though it was kind of odd since a project is theoretically made up of a collection of apps, and I would expect the app folders to be children in the project folder.
+
+### Unit tests
 
 > functional tests test the application from the outside, from the point of view of the user. Unit tests test the application from the inside, from the point of view of the programmer.
 
-philisohpy:
-as you progress
+Extending the TDD philosophy again. The new process is:
 1. write a functional test, describing the behavior from the users point of view (again, tracking the user story)
 2. FT fails expectedly
 3. write unit tests that describe how our solution code should behave
@@ -195,43 +200,43 @@ as you progress
 5. write the smallest application code possible to pass the unit test
 6. iterate - adding unit tests + application code cycles until the FT passes, and then adding more FT's and repeating.
 
---
-double-loop.png
+![TDD process flowchart](double-loop.png)
 https://www.obeythetestinggoat.com/book/chapter_philosophy_and_refactoring.html
---
 
-why - FT ensuring that stuff works as user expects and unit tests ensuring that out internals work as our programmers expect. small iterations ensure that as much of the application code as possible is "covered" by the tests (and that we dont sneak in a potential bug somehow by writing a complex method that we might not be testing thoroughly but passes the tests anyways)
+Why do I need these extra tests?
+* FTs ensure that stuff works as user expects and unit tests ensure that internals work as programmers expect.
+* Small iterations ensure that as much of the application code as possible is "covered" by the tests (and that we dont sneak in a potential bug somehow by writing a complex method that we might not be testing thoroughly but passes the tests anyways).
 
 > Functional tests should help you build an application with the right functionality, and guarantee you never accidentally break it. Unit tests should help you to write code that’s clean and bug free.
 
-The django test file boilerplate
+### Django unit test boilerplate
 
-  from django.test import TestCase
+Django has a boilerplate test file:
 
-  # Create your tests here.
+    from django.test import TestCase
 
-imports an extended version of the standard library's unittest.TestCase with extra features.
+    # Create your tests here.
 
-Using the django test file allows us to use manage.py instead of running the test directly.
+which imports an extended version of the Python standard library's `unittest.TestCase` with extra features. The tests here can be run with Django's test runner via manage.py:
 
-python manage.py test
+    python manage.py test
 
-which lets django do some extra fancy stuff for us
+Using Django's test runner enables additional functionality like spinning up test databases.
 
-LIKE WHAT?
+### Django basics
 
-#### django basics
+* Django roughly follows the common MVC pattern
+  * has models for sure
+  * views are more like the controller
+  * templates are really the views
+* Django uses request-response pairs like Express.
+* Django uses a file called `urls.py` to map URLs to view functions.
 
-roughly MVC
-* has models for sure
-* views are more like controller
-* templates are really the views
+There’s a main `urls.py` for the whole site in the the project folder (e.g., `superlists/urls.py`)
 
-uses request response pairs like Express.
+So we could do something like this:
 
-Django uses a file called urls.py to map URLs to view functions. There’s a main urls.py for the whole site in the the project folder (e.g., superlists/superlists)
-
-So we could do something like this
+    # superlists/urls.py
 
     from django.conf.urls import url
     from lists import views
@@ -240,69 +245,89 @@ So we could do something like this
         url(r'^$', views.home_page, name='home'),
     ]
 
+Where
+
 > A url entry starts with a regular expression that defines which URLs it applies to, and goes on to say where it should send those requests — ​either to a view function you’ve imported, or maybe to another urls.py file somewhere else
 
-so in this case the empty string regex ^$ maps to a home_page view, which is just a function in the lists/views.py file. a simple example might be
+So in this case the empty string regex `^$` maps to a `home_page` view, which is just a function in the `lists/views.py` file. A simple example might be:
+
+    # lists/views.py
 
     def home_page(request):
       return HttpResponse('<html><title>To-Do lists</title></html>')
 
-## Chapter 4 more of the same
+## Chapter 4 - a little more of everything
 
-philisoly
-writing tests can be annoying for simple changes that seem trivial, but the idea is that, generally, complexity sneaks up over time, and you wont always be fresh or remember everything thats going on, and tests serve as a way to save your progress so to speak. the metaphor is pulling buckets of water from a well, its easy at first but eventually you get tired and the deeper the water is the hard the task becomes, and tests serve as a ratchet to ensure that you never slip backwards. writing tests for every single change is tedious, but its the only way to ensure that your not subjectively trying to guess when something is complex enough to warrant testing, which is a recipe for failure. additionally, if your writing tests for trivial changes, the tests themselves should be relatvialy trivial and thus not too bad to implement.
+### A TDD metaphor
 
-Selenium nuts and bolts
+* Writing tests can be annoying for simple changes that seem trivial, but the idea is that, generally, complexity sneaks up over time, and you wont always be fresh or remember everything thats going on, and tests serve as a way to sort of save your progress.
 
-basically a browser driver, again kind of like simulating a user. has helpful methods like
-find_element_by_id - find an element on the page
-send_keys - type in input elements
+* The metaphor is pulling buckets of water from a well - it's easy at first but eventually you get tired and the deeper the water is, the harder the task becomes. Tests serve as a ratchet to ensure that you never slip backwards.
 
-more django
+* Writing tests for every single change is tedious, but it's the only way to ensure that your not subjectively trying to guess when something is complex enough to warrant testing, which is a recipe for failure. Additionally, if you're writing tests for trivial changes, the tests themselves should be relatively trivial and thus not too bad to implement.
 
-uses templates like other frameworks. example
+### More Django basics
+
+#### Templates
+
+Django uses templates like other frameworks. For example:
+
+    # templates/home.html
 
     <html>
         <title>To-Do lists</title>
     </html>
 
-these represent the views in MVC. so the previous example view function could be replaced with
+These represent the views in the MVC pattern. So the previous example view function:
 
-from django.shortcuts import render
+    # lists/views.py
 
-def home_page(request):
-    return render(request, 'home.html')
+    def home_page(request):
+      return HttpResponse('<html><title>To-Do lists</title></html>')
 
-where home.html is a template html file. django automatically looks for files in `templates` directories.
+could be replaced with:
 
---
-like other frameworks, its possible to pass variables into a template and have them render dynamic content. example:
---
+    # lists/views.py
 
-One unintuitive thing with django is that you have to register your apps, by adding the app to the INSTALLED_APPS variable in the settings.py file. I'm not sure why creating the app initially with startapp doesnt automatically do this.
+    from django.shortcuts import render
 
-Django has a [test client](https://docs.djangoproject.com/en/1.11/topics/testing/tools/#the-test-client) which acts like a dummy web browser, a little like selenium. but unlike selenium its better suited for things like establishing that the correct template is being used in the correct context, and less suited for inspecting rendered html or webpage behavior. so its good for some unit tests but the FTs should stick with selenium. example unit test:
+    def home_page(request):
+        return render(request, 'home.html')
+
+Where `home.html` is a template HTML file. Django automatically looks for files in `templates` directories.
+
+And of course, like other frameworks, it's possible to pass variables into a template and have them render dynamic content. For example:
+
+    <table id="id_list_table">
+        <tr><td>{{ new_item_text }}</td></tr>
+    </table>
+
+#### Registering apps
+
+One unintuitive gotcha (at least for me) with Django is that you have to register your apps, by adding the app to the `INSTALLED_APPS` variable in the `settings.py` file. I'm not sure why creating the app initially with `startapp` doesn't automatically do this.
+
+#### Test client
+
+Django has a [test client](https://docs.djangoproject.com/en/1.11/topics/testing/tools/#the-test-client) which acts like a dummy web browser, a little like selenium. But unlike selenium it's better suited for things like establishing that the correct template is being used in the correct context, and less suited for inspecting rendered HTML or webpage behavior. So it's good for some unit tests but the FTs should stick with selenium. Example unit test:
 
     def test_home_page_returns_correct_html(self):
         response = self.client.get('/')
         self.assertTemplateUsed(response, 'home.html')
 
+Here the testing `client` gets a url, and asserts that the correct template was used.
+
+#### TDD and refactoring
 
 TDD is super nice for refactoring because you can ensure that nothing was broken during the changes.
 
 > When refactoring, work on either the code or the tests, but not both at once.
 
-This is definitely a mistake ive made in the past where I start out refactoring something, and then along the way I just group in some small changes I wanted to make, and then something somewhere else breaks so i just fix that real quick, but that breaks somethign else, and then i have multiple changes and at least one bug and its all mixed in with the refactor. best to do it slowly peice by peice.
+This is definitely a mistake I've made myself in the past, where I start out refactoring something, and then along the way I just group in some small changes I wanted to make, and then something somewhere else breaks so I just fix that real quick, but that breaks something else, and then I have multiple changes and at least one bug and it's all mixed in with the refactor. Best to do it slowly piece by piece.
 
-### Chapter 5 databases & object relational mapping
+## Chapter 5 - more fundamentals, databases, & object relational mapping
 
-aside
-Some options on debugging unexpected functional test failures
-* time.sleep can be used to pause text execution, and you can visually inspect the state of the browser
-* classic print statements or manually visiting the site
-* error messages in test assertions are nice because they offer a persistent improvement in debugging, unlike the above
+### CSRF and dynamic templating
 
-aside
 Handling CSRF tokens is pretty convenient in Django. All thats required is a "template tag":
 
     <form method="POST">
@@ -312,7 +337,7 @@ Handling CSRF tokens is pretty convenient in Django. All thats required is a "te
 
 And the framework automatically inserts the appropriate token in a `<input type="hidden">`, and handles subsequent validation. And the dev server even catches forms without CSRF tokens during development! Pretty nice.
 
-similarly, django allows dynamic rendering with template syntax like you would expect:
+Similarly, Django allows dynamic rendering with template syntax like you would expect:
 
     <body>
         <h1>Your To-Do list</h1>
@@ -335,63 +360,67 @@ or
 
     <table id="id_list_table">
         {% for item in items %}
-            <tr><td>1: {{ item.text }}</td></tr>
+            <tr><td>{{ item.text }}</td></tr>
         {% endfor %}
     </table>
 
-Python 3.6 f-strings
-`f"New to-do item did not appear in table. Contents were:\n{table.text}"`
+### Triangulation
 
-#### triangulation
-
-to really ensure that tests are robust, they should be hard to "cheat". For example, if a test failed as follows:
+To really ensure that tests are robust, they should be hard to "cheat". For example, if a test failed as follows:
 
     self.assertIn('1: Buy peacock feathers', [row.text for row in rows])
     AssertionError: '1: Buy peacock feathers' not found in ['Buy peacock feathers']
 
-I could cheat and change the application code to
+I could cheat and change the application code to:
 
     <tr><td>1: {{ new_item_text }}</td></tr>
 
-which adds the missint "1:". Obviously this would be stupid, but the idea is that if I *could* cheat to pass a test, then maybe the test isn't that robust. Removing magic constants and hard-coded content will most likely solve the issue, but a more robust approach would be "triangulation". This just means that I write an additional test that prevents cheating. In this example something like:
+Which adds the missing `1:`. Obviously this would be stupid, but the idea is that if I *could* cheat to pass a test, then maybe the test isn't that robust. Removing magic constants and hard-coded content will most likely solve the issue, but a more robust approach would be "triangulation". This just means that I write an additional test that prevents cheating. In this example something like:
 
-    self.assertIn('1: Buy peacock feathers', [row.text for row in rows])
     self.assertIn(
-        '2: Use peacock feathers to make a fly',
-        [row.text for row in rows]
+      '1: Buy peacock feathers',
+      [row.text for row in rows])
+    self.assertIn(
+      '2: Use peacock feathers to make a fly',
+      [row.text for row in rows]
     )
 
-prevent cheating because the hard-coded application code would produce:
+prevents cheating because the hard-coded application code would produce:
 
     <tr><td>1: Buy peacock feathers</td></tr>
     <tr><td>1: Use peacock feathers to make a fly</td></tr>
 
 ### Django ORM and Models
 
-An Object-Relational Mapper is a layer of abstraction for data stored in a database - classes map tables, attributes map columns, and class instances map rows. Basically ORM’s let you use your high level language features (like classes) to interact with data instead of actually interfacing with the database yourself.
+An Object-Relational Mapper is a layer of abstraction for data stored in a database, e.g.:
+* classes map tables
+* attributes map columns
+* class instances map rows
+
+Basically ORM’s let you use your high level language features (like classes) to interact with data instead of actually interfacing with the database yourself.
 
 Django has a handy built in ORM.
 
-So for example if I wanted to create a table of "Items" with a "text" column, I'd start by defining a simple Python class in models.py instead of writing any SQL or whatnot:
+So for example if I wanted to create a table of "Items" with a "text" column, I'd start by defining a simple Python class in `models.py` instead of writing SQL or whatnot:
 
     from django.db import models
 
     class Item(models.Model):
         text = models.TextField(default='')
 
-the Item class inherits from Django's Model class, and I can specify the columns I want with class attributes. In this case a "text" column, using the TextField() method to specify the type of the column (text), and the default arg to specify its default value. The models module also supports other column types like IntegerField, CharField, DateField, etc.
+The `Item` class inherits from Django's `Model` class, and I can specify the columns I want with class attributes. In this case a "text" column, using the `TextField()` method to specify the type of the column (text), and the default argument to specify its default value. The models module also supports other column types like `IntegerField`, `CharField`, `DateField`, etc.
 
-And now I have an ORM that models my database. but it doesnt actually build the database.
+And now I have an ORM that models my database. But it doesn't actually build the database.
 
-A migration system (is that the right wording?) is what's used to actually build and modify a database. Migrations allow adding/removing database tables and columns, and track the changes like a version control system.
+A migration system is what's used to actually build and modify a database. Migrations allow adding/removing database tables and columns, and track the changes like a version control system.
 
-In django a database can be built or modified with the `makemigrations` command:
+In Django a database can be built or modified with the `makemigrations` command:
 
     python manage.py makemigrations
 
-which looks at models.py file that I just wrote and generates a migrations file, like `lists/migrations/0001_initial.py`
+which looks at the `models.py` file that I just wrote and generates a migrations file, like `lists/migrations/0001_initial.py`.
 
-which has some python code that looks like it's used to create or modify a database from the corresponding model
+This migrations file has some Python code that looks like it's used to create or modify a database from the corresponding model:
 
     ...
     from django.db import migrations, models
@@ -408,30 +437,25 @@ which has some python code that looks like it's used to create or modify a datab
             ),
         ]
 
-settings.py specifies the type of database (of which im sure django supports many). In this case its SQLite, which I've used before and just stores data in a file called db.sqlite3.
-```
-[...]
-# Database
-# https://docs.djangoproject.com/en/1.11/ref/settings/#databases
+The `settings.py` specifies the type of database (of which I'm sure Django supports many). In this case it's SQLite, which I've used before and just stores data in a file called `db.sqlite3`. Example `settings.py` database config:
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+    # Database
+    # https://docs.djangoproject.com/en/1.11/ref/settings/#databases
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        }
     }
-}
-```
 
-So to recap:
-the migrations file (lists/migrations/0001_initial.py) was generated from my python models (models.py) using the `makemigrations` command. And the project settings (settings.py) specify the type of database that i want.
+* So to recap - the migrations file (`lists/migrations/0001_initial.py`) was generated from my Python models (`models.py`) using the `makemigrations` command. And the project settings (`settings.py`) specify the type of database that I want to use.
 
-So now I can use the migrate command to actually create the database:
+So now I can use the `migrate` command to actually create (or modify) the database:
 
     python manage.py migrate
 
-Then once you have models and a database, you can interact with the databse via teh models layer. So in tests and views:
-
-You use regular python with the Models class API instead of SQL:
+Then once you have models and a database, you can interact with the database via the models layer. So in tests and views, you use regular Python with the Models class API instead of SQL:
 
     from lists.models import Item
 
@@ -454,42 +478,41 @@ You use regular python with the Models class API instead of SQL:
             self.assertEqual(first_saved_item.text, 'The first (ever) list item')
             self.assertEqual(second_saved_item.text, 'Item the second')
 
-Here I can instantiate a instance of the item model with Item(), and set the text attribute directly with first_item.text = 'The ...'.
+Here I can instantiate an instance of the item model with `Item()`, and set the `text` attribute directly with `first_item.text = 'The ...'`.
 
-The Model class's save() method lets use write the Item class instance to the DB (presumably as a row), and similarly we can use Model.objects.all() to query from the database, returning a list-like object that can be processed further with python.
+The Model class's `save()` method lets us write the `Item` class instance to the DB (presumably as a row), and similarly we can use `Model.objects.all()` to query from the database, returning a list-like object that can be processed further with Python.
 
-For testing
+Django's `TestCase` also creates a separate test database from migrations (including unapplied ones, that haven't yet been applied with the `migrate` command. I assume this is so you can test your migrations before applying them). So when you run your tests, a new clean DB is created, and then destroyed when the tests are finished. And actually I imagine the DB is cleared in between the tests, so each is independent.
 
-Django's TestCase creates a separate test database from migrations (including unapplied ones, pre `migrate` command). so when you run your tests, a new clean DB is created, and then destroyed when the tests are finished. And actually I imagine the db is cleared in between the tests, so each is independent.
+An author's note:
 
-Aside
 >Good unit testing practice says that each test should only test one thing. The reason is that it makes it easier to track down bugs. Having multiple assertions in a test means that, if the test fails on an early assertion, you don’t know what the status of the later assertions is.
 
-The author makes a note about unit tests and databases:
+The author also makes a note about unit tests and databases:
+
 > Purists will tell you that a "real" unit test should never touch the database, and that the test I’ve just written should be more properly called an integrated test, because it doesn’t only test our code, but also relies on an external system—​that is, a database.
 
-So i should come back to this once I know more. TODO.
+So I should come back to this once I know more. TODO:.
 
-### upgrading FT's
+### Upgrading FT's
 
-In my case when working through building the app, my functional tests didnt actually use TestCase, instead relying only on Selenium. So no test database was create, and each time I ran an FT it was actually polluting my databse with a bunch of duplicate test entries. Which is firstly annoying, but also means that my functional tests are not independent.
+In my case when working through building the app, my functional tests didn't actually use TestCase, instead relying only on Selenium. So no test database was created, and each time I ran an FT it was actually polluting my database with a bunch of duplicate test entries. Which is firstly annoying, but also means that my functional tests are not independent.
 
-This can be solved with `LiveServerTestCase`
-* Like Django's Unittest, starts up a dev server and a uses a separate test DB, runs any method that starts with "test"
+This can be solved with `LiveServerTestCase`, which like Django's `unittest.TestCase`, starts up a dev server and a uses a separate test DB, running any method that starts with "test".
 
-To use it, I have to move the functional test into a python module (just a directory with a __init__.py file), because thats what the django test runner expects.
+To use it, I have to move the functional test into a Python module (which is apparently just a directory with an `__init__.py` file), because that's what the Django test runner expects.
 
-so instead of functional_test.py its
+So instead of `functional_test.py` at the project root, it's
 
     functional_test
     |-- __init__.py
     |-- test.py
 
-Then instead of running the FT directly with like python functional_test.py, I use django's manage.py
+Then instead of running the FT directly with like `python functional_test.py`, I use Django's `manage.py` command:
 
     python manage.py test functional_test
 
-and the new test.py file simply updates my original test from a simple python script like:
+And the new `test.py` file simply updates my original tests from a simple Python script like:
 
     from selenium import webdriver
 
@@ -512,19 +535,19 @@ To something that looks more like my unit tests:
         def setUp(self):
             ...
 
-Where functional tests are grouped with classes, and these classes inherit from LiveServerTestCase, which gives me the test dev server & database, and also setUp and tearDown methods to run in between tests.
+Where functional tests are grouped with classes, and these classes inherit from `LiveServerTestCase`, which gives me the test dev server & database, and also `setUp` and `tearDown` methods to run in between tests.
 
-The test dev server as its own url - live_server_url
+The test dev server as its own URL - `live_server_url`.
 
-###### Implicit and Explicit Waits
+### Implicit and Explicit Waits
 
-there are implicit & explicit waits
-* implicit ones are when you leave it up to selenium to wait for some element or async operation. these are unreliable, and considered a bad idea even by the selenium team.
-* explicit waits are where we tell selenium to wait a fixed time before looking for an element or do a thing. the issue here is that you dont want to wait too long (slow tests) and you dont want to wait too little (might get false negatives if something is just abnormally slow for some reason), and you really never know how long is long enough.
+There are implicit & explicit waits
+* implicit ones are when you leave it up to selenium to wait for some element or async operation. These are often unreliable, and considered a bad idea even by the selenium team.
+* explicit waits are where we tell selenium to wait a fixed amount of time before looking for an element or doing a thing. The issue here is that you dont want to wait too long (because your tests will be unnecessarily slow) and you dont want to wait too little (because you might get false negatives if something is just abnormally slow for some reason), and you really never know how long is long enough.
 
 A good technique is to create a retry loop with a timeout:
 
-from selenium.common.exceptions import WebDriverException
+    from selenium.common.exceptions import WebDriverException
 
     MAX_WAIT = 10
     ...
@@ -542,18 +565,21 @@ from selenium.common.exceptions import WebDriverException
                         raise e
                     time.sleep(0.5)
 
-here we `try` to find an element in the DOM immediately, and if we can't, we pause for a small amount of time (500ms), and try again, up to some large amount of time (10seconds). This allows use to pass successful tests quickly, while ensuring that we wait long enough so as to not pass with a false position. I suppose a potential downside could be that we have to wait a long time for true negatives (when the test actaully shouwl fail), but those situations should happend much less often than the others. especially if youre running lots of tests, and you expect most of your tests to pass most of the time (at least in my experience so far).
+Here we `try` to find an element in the DOM immediately, and if we can't, we pause for a small amount of time (500ms), and try again, up to some large amount of time (10 seconds).
 
 > There are two types of exceptions we want to catch: WebDriverException for when the page hasn’t loaded and Selenium can’t find the table element on the page, and AssertionError for when the table is there, but it’s perhaps a table from before the page reloads, so it doesn’t have our row in yet.
 
-In the example app this refactor shaved a couple seconds off the test time
+This allows use to pass successful tests quickly, while ensuring that we wait long enough so as to not fail with a false negative. I suppose a potential downside could be that we have to wait a long time for true negatives (when the test actually should fail), but those situations should happen much less often than the others (especially if you're running lots of tests, and you expect most of your tests to pass most of the time, which is the case in my experience with testing so far).
 
-### 7
+In the example app, this refactor shaved a couple seconds off the test time.
 
-Philosophy
-* minimize upfront design because it takes time, and the end product almost always significantly deviates away from the design. It's more direct to have a minimal design, and iterate as problems arise or features become truly important.
-* This spills over into the idea of YAGNI (You ain't gonna need it), which is the reality that most often, a lot of features and code simple end up unused and onyl serve to add complexity to the application. Better to start with the minimum set of functionality, as expand only as needed, to ensure that there is never excess.
-* Representational State Transfer (REST) is a design approach for web API's, and can be useful inspiration (even if we don't follow it rigidly). For example
+## Chapter 7 - design notes and more Django features
+
+More philosophy, this time extending past TDD into [agile](https://en.wikipedia.org/wiki/Agile_software_development) and general software design:
+
+* minimize upfront design because it takes time, and the end product almost always significantly deviates away from the original design. It's more direct to have a minimal design, and iterate as problems arise or features become truly important.
+* This spills over into the idea of YAGNI (You ain't gonna need it), which is the reality that most often, a lot of features and code simple end up unused and only serve to add complexity to the application. Better to start with the minimum set of functionality, as expand only as needed, to ensure that there is never excess.
+* Representational State Transfer (REST) is a design approach for web API's, and can be useful inspiration (even if we don't follow it rigidly). For example:
 
 > REST suggests that we have a URL structure that matches our data structure, in this case lists and list items.
 
@@ -561,12 +587,13 @@ So each list can have its own URL
 
     /lists/<list identifier>/
 
-new lists could be created with `/lists/new` and new items with `/lists/<list identifier>/add_item` (not exactly REST, which would probably use PUT or POST for these, but approximate)
+New lists could be created with `/lists/new` and new items with `/lists/<list identifier>/add_item` (not exactly REST, which would probably use PUT or POST for these, but approximate).
 
-is a good way to structure our site's API.
+This is a good (and common) way to structure a web app's API.
 
+### Foreign key relationships
 
-#### foreign key relationships
+Example for creating foreign key relationships in the Django ORM:
 
     from django.db import models
 
@@ -578,29 +605,30 @@ is a good way to structure our site's API.
         list = models.ForeignKey(List, default=None)
 
 
-#### capturing parameters from URLs
+### Capturing parameters from URLs
 
-urlpatterns = [
-    url(r'^$', views.home_page, name='home'),
-    url(r'^lists/new$', views.new_list, name='new_list'),
-    url(r'^lists/(.+)/$', views.view_list, name='view_list'),
-]
+URL parameters can be captured similarly to regular expressions (at least how I've seen it done in JavaScript):
 
-(.+) is a capture group. captured text gets passed to view_list as an arg
+    urlpatterns = [
+        url(r'^$', views.home_page, name='home'),
+        url(r'^lists/new$', views.new_list, name='new_list'),
+        url(r'^lists/(.+)/$', views.view_list, name='view_list'),
+    ]
 
-def view_list(request, list_id):
-    [...]
+Where `(.+)` is a capture group. Captured text gets passed to the corresponding view function (e.g., `view_list`) as an argument:
 
-But this regex is greedy! it will also respond for /lists/1/more_stuff_here/
+    def view_list(request, list_id):
+        [...]
 
+But this regex is greedy! it will also respond for `/lists/1/more_stuff_here/`.
 
-#### app urls vs project urls
+### App URLs vs Project URLs
 
-before I had all the urls in urls.py file of the project (superlists/urls.py). But a better pattern is to move the app urls (url's for "list") into a urls.py file in the app itself (list/urls.py), and then to "include" the app urls into the project.
+Before, I had all the URLs in the project's `urls.py` file (`superlists/urls.py`). But a better pattern is to move the app URLs (URLs for "list") into a `urls.py` file in the app itself (`list/urls.py`), and then to "include" the app URLs into the project.
 
 So that would look more like this:
 
-superlists/urls.py (project)
+    # superlists/urls.py (project)
 
     from django.conf.urls import include, url
     from lists import views as list_views
@@ -611,63 +639,50 @@ superlists/urls.py (project)
         url(r'^lists/', include(list_urls)),
     ]
 
-At the project level, i listen for a single url for the list app, which in this case is all URL's prefixed with `lists/`. The app url's are then `include`d. In other words, at the project level, we just listen for url's that start with `list/`, and then pass along those url's to the app level.
+At the project level, I listen for a single url for the list app, which in this case is all URLs prefixed with `lists/`. The app URLs are then `include`d. In other words, at the project level, we just listen for URLs that start with `list/`, and then pass along those URLs to the app level.
 
 In the app, we just check the remainder of the url (after `list/`), and respond like were originally:
 
-list/urls.py (app)
+    # list/urls.py (app)
 
     from django.conf.urls import url
     from lists import views
 
     urlpatterns = [
-        url(r'^new$', views.new_list, name='new_list'),
-        url(r'^(\d+)/$', views.view_list, name='view_list'),
-        url(r'^(\d+)/add_item$', views.add_item, name='add_item'),
+      url(r'^new$', views.new_list, name='new_list'),
+      url(r'^(\d+)/$', views.view_list, name='view_list'),
+      url(r'^(\d+)/add_item$', views.add_item, name='add_item'),
     ]
 
-In this configuration there is less duplication, and the url handling is more modular. the project level is just looking for which app to hand a request to, and the app itself handles the request.
-
-
+In this configuration there is less duplication, and the URL handling is more modular. The project level is just looking for which app to hand a request to, and the app itself handles the request.
 
 ## Command cheat sheet
 
-...
-
 Dev server can be started with:
 
-```
-python manage.py runserver
-```
+    python manage.py runserver
 
 Run tests with the following:
 
-```
-python manage.py test functional_tests/ # FT
-python manage.py test friendsvoteapp/ # unit tests
-python manage.py test # all
-```
+    python manage.py test functional_tests/ # FT
+    python manage.py test friendsvoteapp/ # unit tests
+    python manage.py test # all
 
 ### Migrations
 
-```
-# make, view, and apply migrations
-python manage.py makemigrations
-ls friendsvoteapp/migrations
-python manage.py migrate
+    # make, view, and apply migrations
+    python manage.py makemigrations
+    ls friendsvoteapp/migrations
+    python manage.py migrate
 
-# remove and create fresh DB
-rm db.sqlite3
-python manage.py migrate --noinput
-```
-
+    # remove and create fresh DB
+    rm db.sqlite3
+    python manage.py migrate --noinput
 
 ### One off chores
 
-```
-# upgrade selenium
-pip install --upgrade selenium
+    # upgrade selenium
+    pip install --upgrade selenium
 
-# check gecko driver version
-geckodriver --version
-```
+    # check gecko driver version
+    geckodriver --version
