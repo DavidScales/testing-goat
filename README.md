@@ -761,9 +761,29 @@ Anyways, apparently all this configuration so far doesn't actually serve any sta
 
 * Aside: You can also have a static files directory outside of your apps for non-app-specific resources.
 
+
+__Update__
+
+The [static template tag](https://docs.djangoproject.com/en/1.7/howto/static-files/#staticfiles-testing-support) looks like this:
+
+    <!-- base.html -->
+
+    {% load staticfiles %}
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      ...
+      <link href="{% static '/lists/bootstrap/css/bootstrap.min.css' %}" rel="stylesheet">
+      <link href="{% static '/lists/base.css' %}" rel="stylesheet">
+    </head>
+
+Where the `staticfiles` app is loaded into the template, and uses the `django.contrib.staticfiles.storage.StaticFilesStorage` storage engine to dyamically create the appropriate URL. The documentation is not that great for this stuff, but I think the idea is that
+* by default, Django knows to create these URL's using the `STATIC_ROOT` established earlier, which is business as usual
+* but additionally, if you choose to use a [CDN or storage service](https://docs.djangoproject.com/en/1.7/howto/static-files/deployment/#staticfiles-from-cdn
+) like Amazon S3 or Google Cloud, you can easily update the storage engine to use that service. Then the URLs can be updated automatically by the storage engine to whatever the 3rd party CDN or storage service uses.
+
 TODO:
 * checkout SASS & LESS
-* checkout the [static template tag](https://docs.djangoproject.com/en/1.7/howto/static-files/#staticfiles-testing-support)
 
 ## Command cheat sheet
 
