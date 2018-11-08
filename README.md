@@ -782,8 +782,226 @@ Where the `staticfiles` app is loaded into the template, and uses the `django.co
 * but additionally, if you choose to use a [CDN or storage service](https://docs.djangoproject.com/en/1.7/howto/static-files/deployment/#staticfiles-from-cdn
 ) like Amazon S3 or Google Cloud, you can easily update the storage engine to use that service. Then the URLs can be updated automatically by the storage engine to whatever the 3rd party CDN or storage service uses.
 
-TODO:
-* checkout SASS & LESS
+## Chapter 9 - Testing deployment using a staging site
+
+Time to deploy the site.
+
+Pitfalls:
+* Networking issues - definitely ran into these
+  * configuring DNS
+  * configuring ports
+  * potentially firewalls, etc.
+* Dependencies
+  * need to be installed with the correct versions on the server
+* Database
+  * needs to be set up on the server
+  * data needs to be preserved across deploys
+* Static files
+  * typical require a special setup for serving with an optimized static file server
+
+Solutions
+* use a staging site on the same infrastructure as the real site for testing in production conditions
+* functional tests! Running these against the staging site as a smoke test that everything is working
+* virtualenv and `requirements.txt` for maintaining dependencies
+* eventually some scripts to automate deployment
+
+The major lesson I learned here is that there is a lot of ways to deploy and as a result it's really quite different from coding. There's documentation for specific services and technologies but how they all fit together really isn't obvious and is not particularly standard.
+
+The chapter steps are summarized as follows:
+
+1. Adapt our FTs so they can run against a staging server.
+2. Spin up a server, install all the required software on it, and point our staging and live domains at it.
+3. Upload our code to the server using Git.
+4. Try and get a quick-and-dirty version of our site running on the staging domain using the Django dev server.
+5. Set up a virtualenv on the server and make sure the database and static files are working.
+
+And along the way we keep running the FTs to tell us what’s working and what’s not.
+
+### Adapting FTs to run against the staging server
+
+> 1. Adapt our FTs so they can run against a staging server.
+
+This was pretty straight forward, although it feels a little hacky - update the FTs to check for an optional environmental variable which specifies the staging server URL:
+
+    import os
+    ...
+
+    class NewVisitorTest(StaticLiveServerTestCase):
+
+        def setUp(self):
+            self.browser = webdriver.Firefox()
+            staging_server = os.environ.get('STAGING_SERVER')
+            if staging_server:
+                self.live_server_url = 'http://' + staging_server
+
+Here we simply configure the FT Python file to accept an override for the `live_server_url` that Django's test runner runs the tests against. So we can then theoretically** test against the staging server with:
+
+    STAGING_SERVER=superlists-staging.scalesdavid.com python manage.py test functional_tests
+
+** In practice I also need to specify the port, `superlists-staging.scalesdavid.com` --> `superlists-staging.scalesdavid.com:8000`.
+
+** Assuming actual staging site is live on `superlists-staging.scalesdavid.com`.
+
+Notes
+* this FT run of course fails, because the staging site isn't yet set up.
+* the `STAGING_SERVER` variable isn't `export`ed because that would cause all FT runs in the command line instance to run against the staging site and might be confusing later if I don't want to do that.
+
+### Getting a server and domain name
+
+> 2. Spin up a server, install all the required software on it, and point our staging and live domains at it.
+
+This part was not so easy. I really only have a conceptual understanding of domains, DNS, server provisioning work, etc.
+
+The two major steps are
+1. buy a domain name
+2. manually provision a server to host the site
+
+#### What I did
+
+* I already have a domain name, `scalesdavid.com` registered through Namecheap.
+* The site is hosted already as a Wordpress site through Bluehost hosting.
+* I configured the registrar (Namecheap) DNS settings to point to Bluehost nameservers.
+  * This means that Bluehost handles all the DNS stuff for the domain, because nameservers are the servers that DNS uses to map IP addresses to domains.
+* I set up an Amazon Web Service (AWS) account and AWS EC2 server instance.
+* I set up an "Elastic IP" for my EC2 instance, and added an A record in Bluehost to point both subdomains `superlists.scalesdavid.com` and `superlists-staging.scalesdavid.com`, to that Elastic IP.
+
+#### Learning notes
+
+* The first hurdle for me was understanding the different server provisioning options. I don't know anything more than the names that are approximately in that space - Google App Engine, Heroku, Amazon Web Services, Bluehost, etc. I had no idea how these things are different. The big picture is that there are basically two kinds of services, Infrastructure as a Service (IaaS), and Platform as a Server (PaaS).
+  * IaaS is, at least in the case of AWS Elastic Compute Cloud (EC2), a very basic virtual server with minimal software & configuration.
+  * PaaS is more abstract, and you don't really need to manage instances or anything like that. This is where Google App Engine, PythonAnywhere, or Heroku fit it. And AWS has a service here as well - Elastic Beanstalk.
+  * I chose IaaS (AWS EC2) so I could learn the most, since it's the least abstract.
+* Another issue I had was trying to configure the subdomains `superlists.scalesdavid.com` and `superlists-staging.scalesdavid.com`, to point to my EC2 instance, since the IP changes each time the instance is restarted.
+  * I tried to follow an [AWS tutorial](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/CreatingNewSubdomain.html) that seemed to cover the exact situation that I was in, but ultimately after talking with tech support, it seems the Bluehost does not support a required operation (adding NS records).
+  * I finally figured out that what I actually needed was an [Elastic IP](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/elastic-ip-addresses-eip.html#using-instance-addressing-eips-allocating), which is a static IP address that maps to server instances and won't change. Then it was simple to add an A record in Bluehost to point the subdomains at the Elastic IP.
+
+#### Reference - Setting up AWS EC2
+
+* I mostly followed this [AWS + Node.js tutorial](https://hackernoon.com/tutorial-creating-and-managing-a-node-js-server-on-aws-part-1-d67367ac5171).
+
+From the AWS dashboard I choose the type of Machine Image that I want (Ubuntu Server 18.04 LTS). This is effectively a copy of a hard drive that has the corresponding server and basic dependencies installed, so it can just be copied/spun up in an empty hard drive.
+
+> An image is an exact copy of a hard drive that can be easily loaded onto an empty hard drive, in this case they are being used as presets to get your machine setup easily. Without at least an operating system and SSH, it wouldn’t be possible to even configure the instance so some preset software is necessary.
+
+Then I choose an instance type.
+
+> Once an image has been selected, we need to select an instance type. Notice that this is a virtual server, with virtual CPUs. Virtual means that although it will seem like we are connecting to and configuring one computer, in fact Amazon will be running multiple instances on the same machine while pretending it isn’t, which is great for scaling and pricing
+
+> Amazon EC2 provides a wide selection of instance types optimized to fit different use cases. Instances are virtual servers that can run applications. They have varying combinations of CPU, memory, storage, and networking capacity, and give you the flexibility to choose the appropriate mix of resources for your applications
+
+I'm picking the t2.micro because it's on the free tier. Then I configure the instance details - most configuration, including storage and tags, I leave as default. But in "security group":
+
+> A security group is a config for your server, telling it which ports it should expose to which IP addresses for certain types of traffic
+
+> To run our app we are going to need SSH access, which by default is on port 22 and uses the TCP protocol. Amazon adds this in for us by default.
+
+> Since we would like to also serve an app we need to expose a HTTP port publicly, by default this is port 80 (but browsers strip this so you don’t see it in URLs).
+
+Note: Later I'll also add port 8000 here, so that I can test using the Django dev server.
+
+So I'll add this. Then launch --> prompts me to generate SSH key pairs, to give me access to the instance.
+
+I'll store the private key on my machine, so when I get a new computer I'll want to revoke access / [destroy the corresponding public key](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/building-shared-amis.html?icmpid=docs_ec2_console#remove-ssh-host-key-pairs).
+
+I moved the downloaded `.pem` file (apparently how the SSH keys are represented) into `~/.ssh` and updated permissions so that it can be used as a key `chmod 400 ~/.ssh/whatever-your-key-name-is.pem`.
+
+I can then `ssh` into my instance using the command supplied in the AWS console.
+
+### Installing software on the server and testing using Django dev server
+
+> 3. Upload our code to the server using Git.
+> 4. Try and get a quick-and-dirty version of our site running on the staging domain using the Django dev server.
+> 5. Set up a virtualenv on the server and make sure the database and static files are working.
+
+I installed Python, `virtualenv` tools, and `git` in my server instance:
+
+    # in EC2 instance
+    sudo apt update
+    sudo apt install python3 python3-venv
+    sudo apt install git
+
+And then setup staging and production sites like this:
+
+    /home/myuser
+    ├── sites
+    │   ├── www.live.my-website.com
+    │   │    ├── db.sqlite3
+    │   │    ├── manage.py
+    │   │    ├── [etc...]
+    │   │    ├── static
+    │   │    │    ├── base.css
+    │   │    │    ├── [etc...]
+    │   │    └── virtualenv
+    │   │         ├── lib
+    │   │         ├── [etc...]
+    │   │
+    │   ├── www.staging.my-website.com
+    │   │    ├── db.sqlite3
+    │   │    ├── [etc...]
+
+By cloning my code from GitHub.
+
+> Each site (staging, live, or any other website) has its own folder, which will contain a checkout of the source code (managed by git), along with the database, static files and virtualenv (managed separately)
+
+I also needed to install Django in the server instance. I added a `requirements.txt` file to my repo to track the project dependencies.
+
+    echo "django==1.11.13" > requirements.txt
+
+I could also have created a `test-requirements.txt` to track testing dependencies like selenium. It makes sense to do this separately because I'll never test on the server instance.
+
+Note: This looks a lot like `dependencies` vs `devDependencies` in Node.js `package.json`.
+
+The I created a virtual environment on the server instance:
+
+    # in EC2 instance
+    python3.6 -m venv virtualenv
+
+And installed the project dependencies:
+
+    # in EC2 instance
+    # using the executables directly instead of activating the env with `source`
+    ./virtualenv/bin/pip install -r requirements.txt
+
+To actually run tests against the Django dev server, I needed to do a few things:
+
+First, I needed to update the `ALLOWED_HOSTS` param in `settings.py`
+
+> ALLOWED_HOSTS is a security setting designed to reject requests that are likely to be forged, broken or malicious because they don’t appear to be asking for your site (HTTP request contain the address they were intended for in a header called "Host")
+
+By default, when `DEBUG=True`, `ALLOWED_HOSTS` effectively only allows requests from  `localhost`. For now I hacked `ALLOWED_HOSTS` to allow everything, but that's allegedly insecure, and I should change it later:
+
+    ALLOWED_HOSTS = ['*']
+
+
+Second, I need to rebuild my database:
+
+    # in EC2 instance
+    ./virtualenv/bin/python manage.py migrate --noinput
+
+
+Third, when I run the Django dev server, I need to specify that it should run on all addresses, rather than its usual `localhost`, which is not accessible from outside the machine:
+
+    # in EC2 instance
+    ./virtualenv/bin/python manage.py runserver 0.0.0.0:8000
+
+Finally, back on my local machine I can now run my tests against the dev server, but I need to also specify the port to access (8000 instead of 80):
+
+    # back in local machine
+    STAGING_SERVER=superlists-staging.scalesdavid.com:8000 ./manage.py test functional_tests --failfast
+
+Note: For the AWS EC2 instance, I also had to [add port 8000 to the AWS ec2 security group](https://forums.aws.amazon.com/thread.jspa?threadID=110106) to allow connections on that port.
+
+Another note: My static files are being served even though I have not rebuilt the static files directory. This is because I'm still using the Django dev server, which looks for static files by default. But I'll probably run into issues with that later in production.
+
+
+---
+* TODO: limit `ALLOWED_HOSTS` from wildcard `*`.
+* TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
+* TODO: consider switching over ec2 instance from Ohio to California
+---
+* TODO: checkout SASS & LESS, customize CSS with them
+* TODO: buy book, ping author once site is complete?
+  > Why not ping me a note once your site is live on the web, and send me the URL? It always gives me a warm and fuzzy feeling…​ obeythetestinggoat@gmail.com.
 
 ## Command cheat sheet
 
