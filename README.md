@@ -993,6 +993,159 @@ Note: For the AWS EC2 instance, I also had to [add port 8000 to the AWS ec2 secu
 
 Another note: My static files are being served even though I have not rebuilt the static files directory. This is because I'm still using the Django dev server, which looks for static files by default. But I'll probably run into issues with that later in production.
 
+## Chapter 10 - Production-ready deployment
+
+TODOs:
+* need to host on "normal" port 80 instead of 8000, so that the site is accessible with a regular URL
+* switch to Nginx + Gunicorn Python/WSGI servers
+  > we shouldn’t use the Django dev server for production; it’s not designed for real-life workloads
+* correct settings in `settings.py`, like insecure `Debug=True` and `ALLOWED_HOSTS`.
+* set a unique `SECRET_KEY`
+* write a `Sytemd` config file to automatically start the site whenever the server instance (AWS EC2) reboots, so that I don't have to manually `ssh` in to do so
+
+Why exactly can't I use a dev server for production? Because they are typically slow, single-threaded, insecure, and scale poorly. Ref
+[[1]](https://stackoverflow.com/questions/20843486/what-are-the-limitations-of-the-flask-built-in-web-server)
+[[2]](https://vsupalov.com/flask-web-server-in-production/)
+[[3]](https://www.quora.com/Why-dont-we-use-Django-server-to-host-a-Django-website-in-production)
+[[4]](https://stackoverflow.com/questions/12269537/is-the-server-bundled-with-flask-safe-to-use-in-production)
+
+Note: There's a lot of different things using the term "server" here. The AWS EC2 virtual machine is a server, and so is Nginx, Gunicorn, and the Django dev server.
+
+### Switching to Nginx
+
+Install Nginx
+
+    sudo apt install nginx
+
+Start the server
+
+    sudo systemctl start nginx
+
+Where `systemctl` is a a Linux "init system", which presumable runs the nginx executable file, as specified for starting nginx servers in the [nginx docs](http://nginx.org/en/docs/beginners_guide.html). [[1]](https://www.digitalocean.com/community/tutorials/how-to-use-systemctl-to-manage-systemd-services-and-units)
+
+Configure Nginx to listen to my staging domain, and proxy requests to the local port 8000 (Django dev server)
+
+    # /etc/nginx/sites-available/superlists-staging.scalesdavid.com
+
+    server {
+        listen 80;
+        server_name superlists-staging.ottg.eu;
+
+        location / {
+            proxy_pass http://localhost:8000;
+        }
+    }
+
+Configuring Nginx as a simple file+proxy server is a common use case and described in the [beginner docs](http://nginx.org/en/docs/beginners_guide.html).
+
+Note: These docs describe the config rules being written directly in `/etc/nginx/nginx.conf`, and not `/etc/nginx/sites-available/...`, but I see that the `/etc/nginx/nginx.conf` file `include`s `/etc/nginx/sites-enabled/*`. Also [SO 3rd answer](https://serverfault.com/questions/527630/what-is-the-different-usages-for-sites-available-vs-the-conf-d-directory-for-ngi) - `/etc/nginx/nginx.conf` is more for global config, while `sites-available/*` is for configuring individual sites (which makes sense if you have multiple sites).
+
+Then I add the configuration file to the enabled sites by creating a symlink to it:
+
+    server:$ export SITENAME=superlists-staging.scalesdavid.com
+
+    server:$ cd /etc/nginx/sites-enabled/
+    server:$ sudo ln -s /etc/nginx/sites-available/$SITENAME $SITENAME
+
+    # check our symlink has worked:
+    server:$ readlink -f $SITENAME
+    # /etc/nginx/sites-available/superlists-staging.scalesdavid.com
+
+> That’s the Debian/Ubuntu preferred way of saving Nginx configurations—​the real config file in `sites-available`, and a symlink in `sites-enabled`; the idea is that it makes it easier to switch sites on or off.
+
+And I remove the default "Welcome" config to avoid potential confusion:
+
+    sudo rm /etc/nginx/sites-enabled/default
+
+Then I reload and run the Django dev server:
+
+    server:$ sudo systemctl reload nginx
+    server:$ cd ~/sites/$SITENAME
+    server:$ ./virtualenv/bin/python manage.py runserver 8000
+
+And the FT's pass
+
+    STAGING_SERVER=superlists-staging.scalesdavid.com ./manage.py test functional_tests --failfast
+
+Tips:
+* `sudo nginx -t` runs a config check
+* Nginx error logs go into `/var/log/nginx/error.log`
+
+### Switching to Gunicorn
+
+Need to rebuild static asset folder, since we aren't going to be using the Django dev server (which automatically searches for static assets):
+
+    server:$ ./virtualenv/bin/python manage.py collectstatic --noinput
+
+And update the Nginx config to serve static files:
+
+    # /etc/nginx/sites-available/superlists-staging.scalesdavid.com
+
+    server {
+        listen 80;
+        server_name superlists-staging.scalesdavid.com;
+
+        location /static {
+            alias /home/elspeth/sites/superlists-staging.scalesdavid.com/static;
+        }
+
+        location / {
+            proxy_pass http://localhost:8000;
+        }
+    }
+
+Using the [alias](http://nginx.org/en/docs/http/ngx_http_core_module.html#alias) command.
+
+Then install [Gunicorn](https://gunicorn.org/):
+
+    server:$ ./virtualenv/bin/pip install gunicorn
+
+And start it:
+
+> Gunicorn will need to know a path to a WSGI server, which is usually a function called `application`. Django provides one in `superlists/wsgi.py`
+
+    server:$ ./virtualenv/bin/gunicorn superlists.wsgi:application
+
+FT's should pass now, this time without the Django dev server.
+
+### Switching to Using Unix Sockets
+
+> When we want to serve both staging and live, we can’t have both servers trying to use port 8000. We could decide to allocate different ports, but that’s a bit arbitrary, and it would be dangerously easy to get it wrong and start the staging server on the live port, or vice versa.
+>
+> A better solution is to use Unix domain sockets — ​they’re like files on disk, but can be used by Nginx and Gunicorn to talk to each other.
+
+Update Nginx proxy settings to point to to a Unix domain socket:
+
+    # /etc/nginx/sites-available/superlists-staging.scalesdavid.com
+
+    server {
+        listen 80;
+        server_name superlists-staging.ottg.eu;
+
+        location /static {
+            alias /home/elspeth/sites/superlists-staging.ottg.eu/static;
+        }
+
+        location / {
+            proxy_pass http://unix:/tmp/superlists-staging.ottg.eu.socket;
+        }
+    }
+
+And then restart the server, specifying that it listen on the socket instead of the default port:
+
+    server:$ sudo systemctl reload nginx
+    server:$ ./virtualenv/bin/gunicorn --bind \
+        unix:/tmp/superlists-staging.ottg.eu.socket superlists.wsgi:application
+
+This isn't completely clear to me and I can't find great resources explaining it. But I think the idea is simple enough:
+* before, Nginx passes requests to `localhost:8000`, where the `gunicorn` server is listening and ready to respond
+* now, Nginx passes passes requests to a "Unix domain socket" which is "like a file on disk", and instead of listening on `localhost:8000`, the `gunicorn` server is listening to this socket
+* I imagine the idea is that I can later have another socket for the live/non-staging site, without having to have a separate port
+
+### Using Environment Variables to Adjust Settings for Production
+
+
+
 
 ---
 * TODO: limit `ALLOWED_HOSTS` from wildcard `*`.
@@ -1002,6 +1155,10 @@ Another note: My static files are being served even though I have not rebuilt th
 * TODO: checkout SASS & LESS, customize CSS with them
 * TODO: buy book, ping author once site is complete?
   > Why not ping me a note once your site is live on the web, and send me the URL? It always gives me a warm and fuzzy feeling…​ obeythetestinggoat@gmail.com.
+
+TODO: read more about the distinctions - perhaps https://www.fullstackpython.com/deployment.html
+
+* looks like Nginx has an ["Nginx Plus" version optimized for AWS](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-plus-amazon-web-services/)
 
 ## Command cheat sheet
 
