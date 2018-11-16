@@ -1029,7 +1029,7 @@ Configure Nginx to listen to my staging domain, and proxy requests to the local 
 
     server {
         listen 80;
-        server_name superlists-staging.ottg.eu;
+        server_name superlists-staging.scalesdavid.com;
 
         location / {
             proxy_pass http://localhost:8000;
@@ -1120,14 +1120,14 @@ Update Nginx proxy settings to point to to a Unix domain socket:
 
     server {
         listen 80;
-        server_name superlists-staging.ottg.eu;
+        server_name superlists-staging.scalesdavid.com;
 
         location /static {
-            alias /home/elspeth/sites/superlists-staging.ottg.eu/static;
+            alias /home/ubuntu/sites/superlists-staging.scalesdavid.com/static;
         }
 
         location / {
-            proxy_pass http://unix:/tmp/superlists-staging.ottg.eu.socket;
+            proxy_pass http://unix:/tmp/superlists-staging.scalesdavid.com.socket;
         }
     }
 
@@ -1135,7 +1135,7 @@ And then restart the server, specifying that it listen on the socket instead of 
 
     server:$ sudo systemctl reload nginx
     server:$ ./virtualenv/bin/gunicorn --bind \
-        unix:/tmp/superlists-staging.ottg.eu.socket superlists.wsgi:application
+        unix:/tmp/superlists-staging.scalesdavid.com.socket superlists.wsgi:application
 
 This isn't completely clear to me and I can't find great resources explaining it. But I think the idea is simple enough:
 * before, Nginx passes requests to `localhost:8000`, where the `gunicorn` server is listening and ready to respond
