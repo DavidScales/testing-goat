@@ -1001,13 +1001,15 @@ TODOs:
   > we shouldn’t use the Django dev server for production; it’s not designed for real-life workloads
 * correct settings in `settings.py`, like insecure `Debug=True` and `ALLOWED_HOSTS`.
 * set a unique `SECRET_KEY`
-* write a `Sytemd` config file to automatically start the site whenever the server instance (AWS EC2) reboots, so that I don't have to manually `ssh` in to do so
+* write a `Systemd` config file to automatically start the site whenever the server instance (AWS EC2) reboots, so that I don't have to manually `ssh` in to do so
 
 Why exactly can't I use a dev server for production? Because they are typically slow, single-threaded, insecure, and scale poorly. Ref
 [[1]](https://stackoverflow.com/questions/20843486/what-are-the-limitations-of-the-flask-built-in-web-server)
 [[2]](https://vsupalov.com/flask-web-server-in-production/)
 [[3]](https://www.quora.com/Why-dont-we-use-Django-server-to-host-a-Django-website-in-production)
 [[4]](https://stackoverflow.com/questions/12269537/is-the-server-bundled-with-flask-safe-to-use-in-production)
+
+Great explanations for the specific Django/Nginx/Gunicorn combination - [Quora](https://www.quora.com/What-are-the-differences-between-nginx-and-gunicorn) & [StackExchange](https://serverfault.com/questions/331256/why-do-i-need-nginx-and-something-like-gunicorn?newreg=631102451c6e49f597913d62d173042f)
 
 Note: There's a lot of different things using the term "server" here. The AWS EC2 virtual machine is a server, and so is Nginx, Gunicorn, and the Django dev server.
 
@@ -1086,7 +1088,7 @@ And update the Nginx config to serve static files:
         server_name superlists-staging.scalesdavid.com;
 
         location /static {
-            alias /home/elspeth/sites/superlists-staging.scalesdavid.com/static;
+            alias /home/ubuntu/sites/superlists-staging.scalesdavid.com/static;
         }
 
         location / {
@@ -1144,17 +1146,198 @@ This isn't completely clear to me and I can't find great resources explaining it
 
 ### Using Environment Variables to Adjust Settings for Production
 
+Environmental variables are a good way to manage configuration differences between staging and production.
 
+Update the existing `settings.py` file from
+
+    Debug = True
+    ALLOWED_HOSTS = ['*']
+
+to:
+
+    if 'DJANGO_DEBUG_FALSE' in os.environ:
+      DEBUG = False
+      SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
+      ALLOWED_HOSTS = [os.environ['SITENAME']]
+    else:
+      Debug = True
+      SECRET_KEY = 'insecure-key-for-dev'
+      ALLOWED_HOSTS = []
+
+Where we will use and environmental variable `DJANGO_DEBUG_FALSE` to control production vs dev mode.
+
+Additionally, outside of `DEBUG=True` mode, Django compares request's HOST header to `ALLOWED_HOSTS`. But...
+
+> Nginx strips out the Host headers from requests it forwards, and it makes it "look like" they came from localhost after all
+
+So we need to forward the host header with the `proxy_set_header` directive:
+
+    server {
+        listen 80;
+        server_name superlists-staging.scalesdavid.com;
+
+        location /static {
+            alias /home/ubuntu/sites/superlists-staging.scalesdavid.com/static;
+        }
+
+        location / {
+            proxy_pass http://unix:/tmp/superlists-staging.scalesdavid.com.socket;
+            proxy_set_header Host $host;
+        }
+    }
+
+And then reload nginx:
+
+    server: sudo systemctl reload nginx
+
+Then the production server can be started by setting the appropriate environmental variables:
+
+    server: export DJANGO_DEBUG_FALSE=y DJANGO_SECRET_KEY=abc123 SITENAME=superlists-staging.scalesdavid.com
+
+    server: ./virtualenv/bin/gunicorn --bind unix:/tmp/superlists-staging.scalesdavid.com.socket superlists.wsgi:application
+
+* Of course secret key needs to be a real secret key
+
+### Using a .env file to store environmental variables
+
+* Basically want to avoid typing env vars each time, so
+
+Add a __gitignored__ `.env` file like:
+
+    DJANGO_DEBUG_FALSE=y
+    SITENAME=superlists-staging.scalesdavid.com
+    DJANGO_SECRET_KEY=abc123
+
+Where the secret key can be generated with something like:
+
+    echo DJANGO_SECRET_KEY=$(python3.6 -c"import random print(''.join(random.SystemRandom().choices('abcdefghijklmnopqrstuvwxyz0123456789', k=50)))") >> .env
+
+The clear & confirm env vars:
+
+    server:$ unset DJANGO_SECRET_KEY DJANGO_DEBUG_FALSE SITENAME
+    server:$ echo $DJANGO_DEBUG_FALSE-none
+
+And then `set` the env vars using the `.env` file as a `source`:
+
+    server:$ set -a; source .env; set +a
+    server:$ echo $DJANGO_DEBUG_FALSE-none
+
+See [set](http://linuxcommand.org/lc3_man_pages/seth.html) [source](https://ss64.com/bash/source.html).
+
+Now the server can be started with production config with just:
+
+    ./virtualenv/bin/gunicorn --bind \
+    unix:/tmp/$SITENAME.socket superlists.wsgi:application
+
+### Using systemd to start server on boot
+
+> Our final step is to make sure that the server starts up Gunicorn automatically on boot, and reloads it automatically if it crashes.
+
+This is done by first setting a Systemd config file, which is a `.service` file that lives in `/etc/systemd/system`:
+
+    # /etc/systemd/system/gunicorn-superlists-staging.scalesdavid.com.service
+
+    [Unit]
+    Description=Gunicorn server for superlists-staging.scalesdavid.com
+
+    [Service]
+    Restart=on-failure
+    User=ubuntu
+    WorkingDirectory=/home/ubuntu/sites/superlists-staging.scalesdavid.com
+    EnvironmentFile=/home/ubuntu/sites/superlists-staging.scalesdavid.com/.env
+
+    ExecStart=/home/ubuntu/sites/superlists-staging.scalesdavid.com/virtualenv/bin/gunicorn \
+        --bind unix:/tmp/superlists-staging.scalesdavid.com.socket \
+        superlists.wsgi:application
+
+    [Install]
+    WantedBy=multi-user.target
+
+Which is mostly self-explanatory:
+* `ExecStart` is the process to actually run - in this case gunicorn
+* `Restart=on-failure` automatically restarts the process if it fails
+* The environmental variables in `EnvironmentFile` are loaded automatically
+* `WantedBy` is what tells Systemd to start the service on boot
+
+Then there's some more one-off enabling and the service can now be started by `systemctl`:
+
+    # tell Systemd to load our new config file
+    server:$ sudo systemctl daemon-reload
+    # tells Systemd to always load our service on boot
+    server:$ sudo systemctl enable gunicorn-superlists-staging.scalesdavid.com
+    # actually starts our service
+    server:$ sudo systemctl start gunicorn-superlists-staging.scalesdavid.com
+
+Now the site spins up on boot!
+
+We also added gunicorn to our project dependencies:
+
+    pip install gunicorn
+    pip freeze | grep gunicorn >> requirements.txt
+
+### Recap and automation prep
+
+Provisioning steps
+* `apt install nginx git python3.6 python3.6-venv`
+* add Nginx config
+* add Systemd job for Gunicorn
+
+Deployment steps
+* pull source code down in `~/sites`
+* start virtualenv in `virtualenv`
+* `pip install -r requirements.txt`
+* `manage.py migrate` for database
+* `collectstatic` for static files
+* restart Gunicorn job
+* run FT's to that check everything works
+
+We also saved generic templates for nginx and systemd configs:
+
+    # deploy_tools/nginx.template.conf
+    server {
+        listen 80;
+        server_name DOMAIN;
+
+        location /static {
+            alias /home/ubuntu/sites/DOMAIN/static;
+        }
+
+        location / {
+            proxy_pass http://unix:/tmp/DOMAIN.socket;
+            proxy_set_header Host $host;
+        }
+    }
+
+    # deploy_tools/gunicorn-systemd.template.service
+    [Unit]
+    Description=Gunicorn server for DOMAIN
+
+    [Service]
+    Restart=on-failure
+    User=ubuntu
+    WorkingDirectory=/home/ubuntu/sites/DOMAIN
+    EnvironmentFile=/home/ubuntu/sites/DOMAIN/.env
+
+    ExecStart=/home/ubuntu/sites/DOMAIN/virtualenv/bin/gunicorn \
+        --bind unix:/tmp/DOMAIN.socket \
+        superlists.wsgi:application
+
+    [Install]
+    WantedBy=multi-user.target
+
+* And some notes about deployment (`deploy_tools/provisioning_notes.md`).
 
 
 ---
-* TODO: limit `ALLOWED_HOSTS` from wildcard `*`.
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
 ---
 * TODO: checkout SASS & LESS, customize CSS with them
 * TODO: buy book, ping author once site is complete?
   > Why not ping me a note once your site is live on the web, and send me the URL? It always gives me a warm and fuzzy feeling…​ obeythetestinggoat@gmail.com.
+
+* TODO: Check out django-environ, django-dotenv, and Pipenv for automating environment management
+* learn more about security https://plusbryan.com/my-first-5-minutes-on-a-server-or-essential-security-for-linux-servers
 
 TODO: read more about the distinctions - perhaps https://www.fullstackpython.com/deployment.html
 
