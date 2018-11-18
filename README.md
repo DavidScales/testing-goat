@@ -1327,6 +1327,123 @@ We also saved generic templates for nginx and systemd configs:
 
 * And some notes about deployment (`deploy_tools/provisioning_notes.md`).
 
+## Chapter 11 - Automating deployment with Fabric
+
+> Automating deployment is critical for our staging tests to mean anything. By making sure the deployment procedure is repeatable, we give ourselves assurances that everything will go well when we deploy to production
+
+In this chapter we automate the deployment stuff from last chapter using Fabric
+
+    pip install fabic3
+
+> Fabric is a tool which lets you automate commands that you want to run on servers. "fabric3" is the Python 3 fork
+
+Fabric uses a Python file to perform the various deploy tasks, which are pretty self-explanatory and [idempotent](https://en.wikipedia.org/wiki/Idempotence):
+
+    # deploy_tools/fabfile.py
+
+    import random
+    from fabric.contrib.files import append, exists
+    from fabric.api import cd, env, local, run
+
+    REPO_URL = 'https://github.com/DavidScales/testing-goat'
+
+    def deploy():
+      # env.user is username you're using to login to the server &
+      # env.host is server address supplied at the command line
+      site_folder = f'/home/{env.user}/sites/{env.host}'
+
+      # -p flag is awesome, it creates deep directories and
+      # doesn't error for existing directories
+      run(f'mkdir -p {site_folder}')
+
+      # cd command here sets the working directory - we can't
+      # actually cd because fabric runs each command
+      # with a fresh shell session
+      with cd(site_folder):
+        _get_latest_source()
+        _update_virtualenv()
+        _create_or_update_dotenv()
+        _update_static_files()
+        _update_database()
+
+    def _get_latest_source():
+      if exists('.git'):
+        run('git fetch')
+      else:
+        run(f'git clone {REPO_URL} .')
+      # local runs the command on my local machine, here we are getting the currently checked out commit
+      current_commit = local('git log -n 1 --format=%H', capture=True)
+      # and setting the server to that commit
+      run(f'git reset --h {current_commit}')
+
+    def _update_virtualenv():
+      if not exists('virtualenv/bin/pip'):
+        run(f'python3.6 -m venv virtualenv')
+      run('./virtualenv/bin/pip install -r requirements.txt')
+
+    def _create_or_update_dotenv():
+      # append is cool, only adding a line if it doesn't exist
+      append('.env', 'DJANGO_DEBUG_FALSE=y')
+      append('.env', f'SITENAME={env.host}')
+      current_contents = run('cat .env')
+      # we can't use append for the secret key because it's value will vary
+      if 'DJANGO_SECRET_KEY' not in current_contents:
+        new_secret = ''.join(random.SystemRandom().choices(
+          'abcdefghijklmnopqrstuvwxyz0123456789', k=50
+        ))
+        append('.env', f'DJANGO_SECRET_KEY={new_secret}')
+
+    def _update_static_files():
+      run('./virtualenv/bin/python manage.py collectstatic --noinput')
+
+    def _update_database():
+      run('./virtualenv/bin/python manage.py migrate --noinput')
+
+The functions can then be executed like:
+
+    fab function_name:host=SERVER_ADDRESS
+
+Or in my case:
+
+    cd deploy_tools
+    fab deploy:host=ubuntu@superlists-staging.scalesdavid.com
+    # or
+    fab deploy:host=ubuntu@superlists.scalesdavid.com
+
+And Fabric is clever enough to connect to the server using my local ssh keys, and run the operations (pretty cool!).
+
+We still need to take some provisioning steps, such as using the template config files to create the Nginx virtual host and the Systemd service:
+
+    # create nginx config
+    cat ./deploy_tools/nginx.template.conf | sed "s/DOMAIN/superlists.scalesdavid.com/g" | sudo tee /etc/nginx/sites-available/superlists.scalesdavid.com
+
+    # activate config with symbolic link
+    sudo ln -s /etc/nginx/sites-available/superlists.scalesdavid.com /etc/nginx/sites-enabled/superlists.scalesdavid.com
+
+    # create systemd service
+    server: cat ./deploy_tools/gunicorn-systemd.template.service | sed "s/DOMAIN/superlists.scalesdavid.com/g" | sudo tee /etc/systemd/system/gunicorn-superlists.scalesdavid.com.service
+
+    # start the services
+    server: sudo systemctl daemon-reload
+    server: sudo systemctl reload nginx
+    server: sudo systemctl enable gunicorn-superlists.scalesdavid.com
+    server: sudo systemctl start gunicorn-superlists.scalesdavid.com
+
+Where `sed` is a super cool stream editor - `s/replaceme/withthis/g`, and `tee` writes input to files.
+
+This stuff should be automated, along with some other one-off steps like installing Python & git, etc. But I want to move on for now since I get the idea. TODO: See [Automating provisioning with Ansible](https://www.obeythetestinggoat.com/book/appendix_III_provisioning_with_ansible.html).
+
+Finally
+
+> use Git tags to mark the state of the codebase that reflects what’s currently live on the server
+
+    git tag LIVE
+    export TAG=$(date +DEPLOYED-%F/%H:%M)  # this generates a timestamp
+    echo $TAG # like "DEPLOYED-2018-11-18/12:01"
+    git tag $TAG
+    git push origin LIVE $TAG # pushes the tags, which aren't pushed by default
+
+* [formatting date's in shell](https://stackoverflow.com/questions/1401482/yyyy-mm-dd-format-date-in-shell-script)
 
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
@@ -1340,6 +1457,12 @@ We also saved generic templates for nginx and systemd configs:
 * learn more about security https://plusbryan.com/my-first-5-minutes-on-a-server-or-essential-security-for-linux-servers
 
 TODO: read more about the distinctions - perhaps https://www.fullstackpython.com/deployment.html
+
+TODO: deployment stuff is complex and this book is great but there's probably a lot of ways to do this and some of them are bound to be much better. Worth researching more
+
+TODO: Should be able to do all provision, test, and deploy with one command?
+* booting AWS instance via API instead of dashboard
+* [automating provisioning stuff with Ansible](https://www.obeythetestinggoat.com/book/appendix_III_provisioning_with_ansible.html) instead of manual commands
 
 * looks like Nginx has an ["Nginx Plus" version optimized for AWS](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-plus-amazon-web-services/)
 
