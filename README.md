@@ -1371,8 +1371,11 @@ Fabric uses a Python file to perform the various deploy tasks, which are pretty 
         run('git fetch')
       else:
         run(f'git clone {REPO_URL} .')
-      # local runs the command on my local machine, here we are getting the currently checked out commit
+
+      # local runs the command on my local machine, here
+      # we are getting the currently checked out commit
       current_commit = local('git log -n 1 --format=%H', capture=True)
+
       # and setting the server to that commit
       run(f'git reset --h {current_commit}')
 
@@ -1385,8 +1388,10 @@ Fabric uses a Python file to perform the various deploy tasks, which are pretty 
       # append is cool, only adding a line if it doesn't exist
       append('.env', 'DJANGO_DEBUG_FALSE=y')
       append('.env', f'SITENAME={env.host}')
+
+      # we can't use append for the secret key
+      # because it's value will vary
       current_contents = run('cat .env')
-      # we can't use append for the secret key because it's value will vary
       if 'DJANGO_SECRET_KEY' not in current_contents:
         new_secret = ''.join(random.SystemRandom().choices(
           'abcdefghijklmnopqrstuvwxyz0123456789', k=50
@@ -1445,6 +1450,51 @@ Finally
 
 * [formatting date's in shell](https://stackoverflow.com/questions/1401482/yyyy-mm-dd-format-date-in-shell-script)
 
+## Chapter 12 - Modularizing tests and a generic wait helper
+
+* split the functional and unit tests into files
+  * FT's inherit from a base class that has helper functions, including a new generic wait function
+  * unit tests now live in a python module
+    * `lists/tests/__init__.py`
+  * unit test files should typically track the various application code files - `test_views.py`, `test_models.py`, `test_forms.py`
+
+* `unittest` has a skip method just like mocha:
+
+        from unittest import skip
+        ...
+
+        @skip
+        def test_cannot_add_empty_list_items(self):
+
+* each test module can be run separatly for convenience:
+
+        python manage.py test functional_tests.test_list_item_validation
+
+* we created a generic wait helper function for assertions that need to run after a page load:
+
+        # functional_tests/test_list_item_validation.py
+
+        self.browser.get(self.live_server_url)
+        self.browser.find_element_by_id('id_new_item').send_keys(Keys.ENTER)
+
+        self.wait_for(lambda: self.assertEqual(
+            self.browser.find_element_by_css_selector('.has-error').text,
+            "You can't have an empty list item"
+        ))
+
+        # functional_tests/base.py
+
+        def wait_for(self, fn):
+        start_time = time.time()
+        while True:
+          try:
+            return fn()
+          except (AssertionError, WebDriverException) as e:
+            if time.time() - start_time > MAX_WAIT:
+              raise e
+            time.sleep(0.5)
+
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
@@ -1463,6 +1513,8 @@ TODO: deployment stuff is complex and this book is great but there's probably a 
 TODO: Should be able to do all provision, test, and deploy with one command?
 * booting AWS instance via API instead of dashboard
 * [automating provisioning stuff with Ansible](https://www.obeythetestinggoat.com/book/appendix_III_provisioning_with_ansible.html) instead of manual commands
+
+TODO: review [earlier notes](https://docs.google.com/document/d/1t1TeZs95hxaKD6YTlPKwo4POGpqQLJymDuwM9vbFlbA/edit#)
 
 * looks like Nginx has an ["Nginx Plus" version optimized for AWS](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-plus-amazon-web-services/)
 
