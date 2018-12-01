@@ -36,4 +36,12 @@ class ListAndItemModelTest(TestCase):
     item = Item(list=list_, text='')
     with self.assertRaises(ValidationError):
       item.save()
-      item.full_clean()
+      item.full_clean() # this line is kind of misleading - it allows the test
+      # to pass, but the application code still saves empty items if this same
+      # line isn't present there
+    # try:
+    #   item.save()
+    #   item.full_clean()
+    #   self.fail('The save should have raised an exception')
+    # except ValidationError:
+    #   pass
