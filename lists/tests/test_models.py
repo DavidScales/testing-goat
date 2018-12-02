@@ -39,6 +39,7 @@ class ListAndItemModelTest(TestCase):
       item.full_clean() # this line is kind of misleading - it allows the test
       # to pass, but the application code still saves empty items if this same
       # line isn't present there
+
     # try:
     #   item.save()
     #   item.full_clean()

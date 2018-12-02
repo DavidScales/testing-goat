@@ -1494,6 +1494,87 @@ Finally
               raise e
             time.sleep(0.5)
 
+## Chapter 13 - TBD
+
+* You can validate user input at the model level in Django
+* A Django quirk - Django models don't run full validation on save
+  * apparently *"any constraints that are actually implemented in the database will raise errors on save, but SQLite doesn’t support enforcing emptiness constraints on text columns"*
+  * so blank input items can get saved in our DB, even though the `TextField` in our model defaults to `blank=False`
+  * Django models have a method that runs full validation (`full_clean`) that we can use to get around this. It's a bit hacky IMO, especially since it can lead to desync between tests and application code (e.g., if a test calls `full_clean` but app code doesn't, then the test might pass even though app code is buggy):
+
+        def new_list(request):
+          list_ = List.objects.create()
+          item = Item(text=request.POST['item_text'], list=list_)
+          try:
+            item.full_clean()
+            item.save()
+          except ValidationError:
+            list_.delete()
+            error = 'You can\'t have an empty list item'
+            return render(request, 'home.html', { 'error': error })
+          return redirect(list_)
+
+* We can add errors to the templates (just like any other parameter) for displaying validation issues to the user:
+
+        {% if error %}
+          <div class="form-group has-error">
+            <span class="help-block">{{ error }}</span>
+          </div>
+        {% endif %}
+
+* Django will escape special characters, and there is a utility funtion to do the same in your tests:
+
+        # example generated HTML
+        <span class="help-block">You can&#39;t have an empty list item</span>
+
+        # using escape helper to test the HTML
+        expected_error = escape("You can't have an empty list item")
+        self.assertContains(response, expected_error)
+
+* A common pattern is to handle both GET and POST request for a given URL in a single view:
+
+      # Note: simplified example w/o `full_clean`
+
+      def view_list(request, list_id):
+        list_ = List.objects.get(id=list_id)
+        if request.method == 'POST':
+          Item.objects.create(text=request.POST['item_text'], list=list_)
+          return redirect(f'/lists/{list_.id}/')
+        return render(request, 'list.html', {'list': list_})
+
+* Django can use the `name` parameter in `urls.py` as a sort of canonical source of truth for URLs, which means they don't need to be hardcoded in templates or even view logic.
+  * In templates we can use URL template tags:
+
+        {% url 'new_list' %}
+        {% url 'view_list' list.id %}
+
+  * In view logic, you can similarly pass in the name of the template and a positional argument:
+
+        def new_list(request):
+          ...
+          return redirect('view_list', list_.id)
+
+  * but you can also associate URLs with models by defining a `get_absolute_url` method on a model, and using the `reverse` function to construct a URL from the view's `name` and positional arguments.
+
+        # models.py
+        from django.core.urlresolvers import reverse
+        class List(models.Model):
+          def get_absolute_url(self):
+            return reverse('view_list', args=[self.id])
+
+  * Then in the view logic, you can pass models directly into functions that expect URLs, and Django will know to use the models `get_absolute_url` method to determine the URL. (This is also helpful for stuff in Django `admin` and other things):
+
+        # views.py
+        def new_list(request):
+          ...
+          return redirect(list_)
+
+  * In both cases Django performs a reverse-lookup for the URLs, basically the opposite of what it does normally to map URL's to views. You can test like so:
+
+        # test_models.py
+        def test_get_absolute_url(self):
+          list_ = List.objects.create()
+          self.assertEqual(list_.get_absolute_url(), f'/lists/{list_.id}/')
 
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
