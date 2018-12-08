@@ -1576,6 +1576,161 @@ Finally
           list_ = List.objects.create()
           self.assertEqual(list_.get_absolute_url(), f'/lists/{list_.id}/')
 
+## Chapter 14 - Basic forms
+
+Apparently in Django, forms can
+* process user input and validate it for errors
+* be used in templates to render HTML input elements & error messages
+* can even save data to the database
+
+I think the basic idea is that all of these things can be done with some Django "form" class, instead of "manually". For example...
+
+In `views.py`, instead of using a `try/catch` structure and manually validating form input with something like `fullclean()`:
+
+    def view_list(request, list_id):
+      list_ = List.objects.get(id=list_id)
+      error = None
+      if request.method == 'POST':
+        try:
+          item = Item(text=request.POST['item_text'], list=list_)
+          item.full_clean()
+          item.save()
+          return redirect(list_)
+        except ValidationError:
+          error = 'You can\'t have an empty list item'
+      return render(request, 'list.html', {'list': list_, 'error': error })
+
+    def new_list(request):
+      list_ = List.objects.create()
+      item = Item(text=request.POST['item_text'], list=list_)
+      try:
+        item.full_clean()
+        item.save()
+      except ValidationError:
+        list_.delete()
+        error = 'You can\'t have an empty list item'
+        return render(request, 'home.html', { 'error': error })
+      return redirect(list_)
+
+You can just create a form instance, which can check validity with a `cleaner is_valid()` method, and can automatically write the appropriate data to the database with `save()`:
+
+    def view_list(request, list_id):
+      list_ = List.objects.get(id=list_id)
+      form = ItemForm()
+      if request.method == 'POST':
+        form = ItemForm(data=request.POST)
+        if form.is_valid():
+          form.save(for_list = list_)
+          return redirect(list_)
+      return render(request, 'list.html', { 'list': list_, 'form': form })
+
+    def new_list(request):
+      form = ItemForm(data=request.POST)
+      if form.is_valid():
+        list_ = List.objects.create()
+        form.save(for_list = list_)
+        return redirect(list_)
+      else:
+        return render(request, 'home.html', { 'form': form })
+
+In addition, the form context contains any form errors, so `base.html` is just updated to use the form errors:
+
+    <span class="help-block">{{ form.text.errors }}</span>
+
+instead of a custom error context:
+
+    <span class="help-block">{{ error }}</span>
+
+The forms themselves are described in `forms.py`. In the this example, basically we just configure the form with properties:
+
+    from django import forms
+    from lists.models import Item
+    EMPTY_ITEM_ERROR = "You can't have an empty list item"
+
+    class ItemForm(forms.models.ModelForm):
+
+      class Meta:
+        model = Item
+        fields = ('text',)
+        widgets = {
+          'text': forms.fields.TextInput(attrs = {
+            'placeholder': 'Enter a to-do item',
+            'class': 'form-control input-lg'
+          })
+        }
+        error_messages = {
+          'text': {'required': EMPTY_ITEM_ERROR}
+        }
+
+      def save(self, for_list):
+        self.instance.list = for_list
+        return super().save()
+
+With this `class Meta` pattern, we supply a `model` to base the form off of (which I assume is what ties it to the database for saving and configures validation based on the database validation rules). We can then specify the model's `fields` that we want to generate `input`s for. The `widets` config is used to cutomize the generated `input` elements (in this case a `type=text` input with a specified `placeholder` and `class`), and the `error_messages` are used to customize the error messages for each component of each input/field (in this case, using the `EMPTY_ITEM_ERROR` if the 'text' input is not completed by the user).
+
+So instead of hard coding HTML into `base.html`:
+
+    <input name="item_text" id="id_text"
+          placeholder="Enter a to-do item"
+          class="form-control input-lg">
+
+We can just add:
+
+    {{ form.text }}
+
+Which will generate a labelled input:
+
+    <p>
+      <label for="id_text">Text:</label>
+      <input type="text" name="text" placeholder="Enter a to-do item" class="form-control input-lg" required id="id_text" />
+    </p>
+
+Note that the only "custom" logic here is the `save` method, which was used in `views.py`. We are effectively just calling the built-in `save` method, but adding a convenient way to specify the `list` property for items on save, since otherwise the form doesn't have a way to associate the two, and we'd get the same error as if we tried `Item.objects.create()` without specifying a list.
+
+Form testing is done in `test_forms.py`, for example:
+
+    from django.test import TestCase
+    from lists.models import Item, List
+    from lists.forms import ItemForm, EMPTY_ITEM_ERROR
+
+    class ItemFormTest(TestCase):
+
+      def test_form_renders_item_text_input(self):
+        form = ItemForm()
+        # as.p() renders form as HTML
+        self.assertIn('placeholder="Enter a to-do item"', form.as_p())
+        self.assertIn('class="form-control input-lg"', form.as_p())
+
+      def test_form_validation_for_blank_items(self):
+        form = ItemForm(data = { 'text': '' })
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['text'], [EMPTY_ITEM_ERROR])
+
+      def test_form_save_handles_saving_to_a_list(self):
+        list_ = List.objects.create()
+        form = ItemForm(data = { 'text': 'do a thing' })
+        new_item = form.save(for_list=list_)
+        self.assertEqual(new_item, Item.objects.first())
+        self.assertEqual(new_item.text, 'do a thing')
+        self.assertEqual(new_item.list, list_)
+
+Where the `as_p()` method renders the form as HTML. We can then also test that forms are being used in the views by examing page context. Example in `test_views.py`:
+
+    def test_home_page_uses_item_form(self):
+      response = self.client.get('/')
+      self.assertIsInstance(response.context['form'], ItemForm)
+
+This is kinda cool so far but looks like a bit to learn and potentially pretty Django specific. There are some alternatives to writing custom form templates that I should check out:
+* see https://django-crispy-forms.readthedocs.io/en/latest/
+* see https://django-floppyforms.readthedocs.io/en/latest/
+
+
+### Awesome bash command
+
+    grep string functional_tests/test*
+
+Lists all occurrences of `string` in `functional_tests/test*` files (also can add `-r`)
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
