@@ -1731,6 +1731,102 @@ This is kinda cool so far but looks like a bit to learn and potentially pretty D
 
 Lists all occurrences of `string` in `functional_tests/test*` files (also can add `-r`)
 
+## Chapter 15 - Advanced forms
+
+### Created a new form that adds validation for duplicate todos
+
+* Added an FT to check that duplicate todos don't submit
+* Added unit test to confirm that duplicate items raise an error at the model level (and another test to ensure that identical items can exist in *separate* lists)
+* Updated the model to pass (and ran `makemigrations`):
+
+      # models. py
+
+      class Item(models.Model):
+        text = models.TextField(default='')
+        list = models.ForeignKey(List, default=None)
+
+        def __str__(self):
+          return self.text
+
+        class Meta:
+          # this ensures unique property combinations
+          unique_together = ('list', 'text')
+          # ordering can theoretically get messed up with uniqueness
+          # these same contraints, which could break out other tests
+          ordering = ('id',)
+
+* Created a new form that has access to the current list, and can validate for uniquess at the view/forms layer
+
+      # test_forms.py
+
+      class ExistingListItemFormTest(TestCase):
+      ...
+        def test_form_validation_for_duplicate_items(self):
+          list_ = List.objects.create()
+          Item.objects.create(list=list_, text='no twins!')
+          form = ExistingListItemForm(for_list=list_, data={'text': 'no twins!'})
+          self.assertFalse(form.is_valid())
+          self.assertEqual(form.errors['text'], [DUPLICATE_ITEM_ERROR])
+
+      # forms.py
+
+      DUPLICATE_ITEM_ERROR = "You've already got this in your list"
+      ...
+      class ExistingListItemForm(ItemForm):
+
+        # override constructor so we can pass in current list,
+        # which the form will need to check for duplicates
+        def __init__(self, for_list, *args, **kwargs):
+          super().__init__(*args, **kwargs)
+          self.instance.list = for_list
+
+        # Django calls validate_unique automatically, so we override
+        # it to catch duplicate item errors, and send the error
+        # message back to our form
+        def validate_unique(self):
+          try:
+            self.instance.validate_unique()
+          except ValidationError as e:
+            e.error_dict = {'text': [DUPLICATE_ITEM_ERROR]}
+            self._update_errors(e)
+
+        # since we already have the list as part of the form
+        # instance, we don't need to use the parent (ItemForm) save
+        # method (which takes the list as input), so we override to
+        # the grandparent method
+        def save(self):
+          return forms.models.ModelForm.save(self)
+
+* Add the new form in the appropriate views (one that use an existing list vs a new list)
+
+      # test_views.py
+
+      class ListViewTest(TestCase):
+      ...
+
+        # test for new form context
+
+        def test_displays_item_form(self):
+            list_ = List.objects.create()
+            response = self.client.get(f'/lists/{list_.id}/')
+            self.assertIsInstance(response.context['form'], ExistingListItemForm)
+            self.assertContains(response, 'name="text"')
+
+        def test_for_invalid_input_passes_form_to_template(self):
+            response = self.post_invalid_input()
+            self.assertIsInstance(response.context['form'], ExistingListItemForm)
+
+      # views.py
+
+      def view_list(request, list_id):
+        list_ = List.objects.get(id=list_id)
+        form = ExistingListItemForm(for_list=list_)
+        if request.method == 'POST':
+            form = ExistingListItemForm(for_list=list_, data=request.POST)
+            if form.is_valid():
+                form.save()
+                ...
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
