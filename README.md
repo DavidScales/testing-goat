@@ -1827,6 +1827,43 @@ Lists all occurrences of `string` in `functional_tests/test*` files (also can ad
                 form.save()
                 ...
 
+## Chapter 16: JavaScript
+
+I'm already pretty familiar with JS but I followed along to stay in sync.
+
+* wanted to use JS to remove "duplicate item" validation error when user starts typing to correct duplicate.
+* added an FT for the same
+* added a QUnit file and some JS unit tests for the same
+* added a JS file, `lists.js`, for the logic:
+
+        // lists.js
+
+        window.Superlists = {};
+        window.Superlists.initialize = () => {
+          $('input[name="text"]').on('keypress', function () {
+            $('.has-error').hide();
+          });
+        };
+
+* included the JS, as well as the dependent JQuery in `base.html`:
+
+        // base.html
+
+        <script src="{% static '/lists/jquery-3.3.1.js' %}"></script>
+        <script src="{% static '/lists/lists.js' %}"></script>
+        <script>
+          window.Superlists.initialize();
+          document.addEventListener('DOMContentLoaded', () => {
+            window.Superlists.initialize();
+          });
+        </script>
+
+  * used namespacing to avoid conflicts with future libraries and wrapped initialization in `DOMContentLoaded` event for perf.
+
+TODO:
+* refactor out jQuery - adds 85kb to page weight for just a couple methods
+* refactor out Bootstrap - adds 120kb to page weight for just a few style rules
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
