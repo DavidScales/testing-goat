@@ -20,16 +20,14 @@
   <script src="https://code.jquery.com/qunit/qunit-2.8.0.js"></script>
 
   <script>
-    console.log('starting tests');
-
-    QUnit.test('errors should be hidden on keypress', function (assert) {
-      initialize();
+    QUnit.test('errors should be hidden on keypress', assert => {
+      window.Superlists.initialize();
       $('input[name="text"]').trigger('keypress');
       assert.equal($('.has-error').is(':visible'), false);
     });
 
-    QUnit.test("errors aren't hidden if there is no keypress", function (assert) {
-      initialize();
+    QUnit.test('errors aren\'t hidden if there is no keypress', assert => {
+      window.Superlists.initialize();
       assert.equal($('.has-error').is(':visible'), true);
     });
   </script>

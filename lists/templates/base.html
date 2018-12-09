@@ -39,7 +39,12 @@
 
     <script src="{% static '/lists/jquery-3.3.1.js' %}"></script>
     <script src="{% static '/lists/lists.js' %}"></script>
-    <script> initialize(); </script>
+    <script>
+      window.Superlists.initialize();
+      document.addEventListener('DOMContentLoaded', () => {
+        window.Superlists.initialize();
+      });
+     </script>
 
   </div>
 </body>
