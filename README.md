@@ -1494,7 +1494,7 @@ Finally
               raise e
             time.sleep(0.5)
 
-## Chapter 13 - TBD
+## Chapter 13 - Validation at the database layer
 
 * You can validate user input at the model level in Django
 * A Django quirk - Django models don't run full validation on save
@@ -1863,6 +1863,35 @@ I'm already pretty familiar with JS but I followed along to stay in sync.
 TODO:
 * refactor out jQuery - adds 85kb to page weight for just a couple methods
 * refactor out Bootstrap - adds 120kb to page weight for just a few style rules
+
+## Chapter 17: Deploying updates
+
+Super awesome now that mostly everything is automated (still could automate provisioning).
+
+Deploy to staging:
+
+    git push
+    cd deploy_tools
+    fab deploy:host=ubuntu@superlists=staging.scalesdavid.com
+
+Restart Gunicorn in the server:
+
+    @server: sudo systemctl restart gunicorn-superlists-staging.scalesdavid.com
+
+Then run FTs again back on local machine against the staging site:
+
+    STAGING_SERVER=superlists-staging.scalesdavid.com python manage.py test functional_tests
+
+If everything passes, then I'm good to do the same for the production site, `superlists.scalesdavid.com`.
+
+Final touches (to production site) - update and push git tags:
+
+    git tag -f LIVE # f forces moving the LIVE tag to this commit
+    export TAG=`date +DEPLOYED-%F/%H%M` # DEPLOYED-2018-12-09/1605
+    git tag $tag
+    git push -f origin LIVE $TAG
+
+Done!
 
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
