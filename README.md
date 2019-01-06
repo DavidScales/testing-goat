@@ -1893,6 +1893,50 @@ Final touches (to production site) - update and push git tags:
 
 Done!
 
+## Chapter 18: Spiking and user auth
+
+Spiking - basically exploratory coding without tests. Once you've got a feature working, you re-write the feature TDD style. Basic workflow is to code the feature in a spike branch, then when finished, revert back to master. You could consider writing an FT agaisnt the finished spike branch or start it fresh one the master branch.
+
+In this chapter we implemented email auth as a spike - no notes there.
+
+Now we are reimplementing "better" with TDD.
+
+So far:
+
+* write an FT that checks email login (`functional_tests/test_login.py`)
+* update `base.html` with a navbar that has a login form
+* create a new `accounts` app: `python manage.py startapp accounts` && update `INSTALLED_APPS` in `settings.py`
+* within `accounts`, we create two new simple models and corresponding tests
+  * Theres a model for login tokens, that associate a generated random token with an email (where `uuid` is just a Python module for generating "univeral unique id's"):
+
+        # accounts/models.py
+        class Token(models.Model):
+          email = models.EmailField()
+          uid = models.CharField(default=uuid.uuid4, max_length=40)
+
+  * And theres a model for users, that basically just consists of an email primary key, and some boilerplate required by Django because...
+
+        # accounts/models.py
+        class User(models.Model):
+          email = models.EmailField(primary_key=True)
+          REQUIRED_FIELDS = []
+          USERNAME_FIELD = 'email'
+          is_anonymous = False
+          is_authenticated = True
+
+  * ...the user model is slightly different in that it uses Django's built in user model, which is configured in `settings.py`, and the user class is then accessed through Django's `get_user_model` instead of directly:
+
+        # settings.py
+        AUTH_USER_MODEL = 'accounts.User'
+
+        # accounts/test_models.py
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        ... [tests as usual]
+
+* make migrations to update the DB with our models changes
+  * **Note** that we also deleted migrations until they passed tests, e.g., make `0001_thing.py`, test, delete, make, etc. so that we didn't have 10 migrations to get one passing model
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
