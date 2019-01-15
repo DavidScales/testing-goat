@@ -1937,6 +1937,148 @@ So far:
 * make migrations to update the DB with our models changes
   * **Note** that we also deleted migrations until they passed tests, e.g., make `0001_thing.py`, test, delete, make, etc. so that we didn't have 10 migrations to get one passing model
 
+## Chapter 19: Using Mocks to Test External Dependencies or Reduce Duplication
+
+* Mocking is basically replacing a method or modules with a fake one, to avoid side effects or reduce duplications. Mocks are a subset of "Test Doubles", like spies, stubs, etc. and theres a bunch of nuance between them all and you're most likely using the terms wrong, but that's fine.
+
+Example - we don't want to send actual email when testing Django's email dependency, so we could manually mock ("monkeypatch") the email method by literally overwriting the function with a "mock" function, and then just testing that the mock function was called as expected:
+
+    def test_sends_mail_to_address_from_post(self):
+        self.send_mail_called = False
+
+        def fake_send_mail(subject, body, from_email, to_list):
+            self.send_mail_called = True
+            self.subject = subject
+            self.body = body
+            self.from_email = from_email
+            self.to_list = to_list
+
+        accounts.views.send_mail = fake_send_mail
+
+        self.client.post('/accounts/send_login_email', data={ 'email': 'edith@example.com' })
+
+        self.assertTrue(self.send_mail_called)
+        self.assertEqual(self.subject, 'Your login link for Superlists')
+        self.assertEqual(self.from_email, 'noreply@superlists')
+        self.assertEqual(self.to_list, ['edith@example.com'])
+
+Python of course has a library to handle this
+
+    >>> from unittest.mock import Mock
+    >>> m = Mock()
+    >>> m.any_attribute
+    <Mock name='mock.any_attribute' id='140716305179152'>
+    >>> type(m.any_attribute)
+    <class 'unittest.mock.Mock'>
+    >>> m.any_method()
+    <Mock name='mock.any_method()' id='140716331211856'>
+    >>> m.foo()
+    <Mock name='mock.foo()' id='140716331251600'>
+    >>> m.called
+    False
+    >>> m.foo.called
+    True
+    >>> m.bar.return_value = 1
+    >>> m.bar(42, var='thing')
+    1
+    >>> m.bar.call_args
+    call(42, var='thing')
+
+The library also has a patch function that can be used as a decorator to achieve a similar effect (actually better because the mocked function is only modifed for the scope of the single test):
+
+    from unittest.mock import patch
+
+    @patch('accounts.views.send_mail')
+    def test_sends_mail_to_address_from_post(self, mock_send_mail):
+        self.client.post('/accounts/send_login_email', data={ 'email': 'edith@example.com' })
+
+        self.assertEqual(mock_send_mail.called, True)
+        (subject, body, from_email, to_list), kwargs = mock_send_mail.call_args
+        self.assertEqual(subject, 'Your login link for Superlists')
+        self.assertEqual(from_email, 'noreply@superlists')
+        self.assertEqual(to_list, ['edith@example.com'])
+
+        # the above "call_args" check can be simplified with the
+        # "call" helper, e.g. to check that "authenticate" was called
+        # with "uid='abcd123'", compare:
+        # mock_auth.authenticate.call_args and
+        # call(uid='abcd123')
+
+* Check out the code files to see how the authentication system was actually created - it spans multiple files. Basically Django has a built-in authentication system for keeping track of users with sessions/cookies. We need to configure the "backend" by creating a class (`PasswordlessAuthenticationBackend`) with `authenticate` and `get_user` methods, and then specify that class in `settings.py`. The in our actual view logic, we can use built in `login` and `logout` methods. I'm not sure if there's anything else going on under the hood from the fact that we are using a default Django "user" model.:
+
+        # accounts/authentication.py
+
+        class PasswordlessAuthenticationBackend(object):
+
+          def authenticate(self, uid):
+            try:
+              token = Token.objects.get(uid=uid)
+              return User.objects.get(email=token.email)
+            except User.DoesNotExist:
+              return User.objects.create(email=token.email)
+            except Token.DoesNotExist:
+              return None
+
+          def get_user(self, email):
+            try:
+              return User.objects.get(email=email)
+            except User.DoesNotExist:
+              return None
+
+        # superlists/settings.py
+
+        AUTH_USER_MODEL = 'accounts.User'
+        AUTHENTICATION_BACKENDS = [
+            'accounts.authentication.PasswordlessAuthenticationBackend',
+        ]
+
+        # accounts/views.py
+
+        from django.contrib import auth
+
+        def login(request):
+        user = auth.authenticate(uid=request.GET.get('token'))
+        if user:
+          auth.login(request, user)
+        return redirect('/')
+
+* Mocks can potentially leave you too tightly coupled to implementation - for example testing that "foo" was called a certain way, rather than just testing the end behavior, which may be possible by some other means.
+
+* When implementation is important mocks can save you from code duplication - I did not actual understand the example given here, so I'll have to check into this later.
+
+* You can patch mocks at the class level
+
+* Django has a [messages functionality](https://docs.djangoproject.com/en/1.11/ref/contrib/messages/)
+
+* Django has a tool for building URLs
+
+        url = request.build_absolute_uri(
+          reverse('login') + '?token=' + str(token.uid)
+        )
+
+* Configure settings for Django email:
+
+        # superlists/settings.py
+        EMAIL_HOST = 'smtp.gmail.com'
+        EMAIL_HOST_USER = 'obeythetestinggoat@gmail.com'
+        EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+        EMAIL_PORT = 587
+        EMAIL_USE_TLS = True
+        # Then use .env file with `set -a; source .env; set +a;`
+        # or manually export the password variable:
+        # export EMAIL_PASSWORD="yoursekritpasswordhere"
+
+* Django has a built in logout "view" that will redirect:
+
+        from django.contrib.auth.views import logout
+        ...
+
+        urlpatterns = [
+          url(r'^send_login_email$', views.send_login_email, name='send_login_email'),
+          url(r'^login$', views.login, name='login'),
+          url(r'^logout$', logout, {'next_page': '/'}, name='logout'),
+        ]
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
