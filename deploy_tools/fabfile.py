@@ -1,4 +1,5 @@
 import random
+import os
 from fabric.contrib.files import append, exists
 from fabric.api import cd, env, local, run
 
@@ -28,6 +29,8 @@ def _update_virtualenv():
   run('./virtualenv/bin/pip install -r requirements.txt')
 
 def _create_or_update_dotenv():
+  email_password = os.environ['EMAIL_PASSWORD']
+  append('.env', f'EMAIL_PASSWORD={email_password}')
   append('.env', 'DJANGO_DEBUG_FALSE=y')
   append('.env', f'SITENAME={env.host}')
   current_contents = run('cat .env')
