@@ -1872,7 +1872,7 @@ Deploy to staging:
 
     git push
     cd deploy_tools
-    fab deploy:host=ubuntu@superlists=staging.scalesdavid.com
+    fab deploy --host=ubuntu@superlists-staging.scalesdavid.com
 
 Restart Gunicorn in the server:
 
