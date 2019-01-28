@@ -2158,6 +2158,69 @@ We can create a decorator:
         navbar = self.browser.find_element_by_css_selector('.navbar')
         self.assertIn(email, navbar.text)
 
+## Chapter 21: Server-side debugging
+
+After deploying to the staging server, there were some unexpected FT failures:
+* could not send emails in `test_can_get_email_link_to_log_in` test
+* could not create a pre-authenticated session in `test_my_lists` test
+
+Definitely want logging config in `settings.py`
+
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'console': {
+                'level': 'DEBUG',
+                'class': 'logging.StreamHandler',
+            },
+        },
+        'loggers': {
+            'django': {
+                'handlers': ['console'],
+            },
+        },
+        'root': {'level': 'INFO'},
+    }
+
+For the email failure, this told me that gmail was refusing to send emails.
+
+* First this was because the server doesn't have access to the local `EMAIL_PASSWORD` variable.
+  * this was fixed by manually adding the password to the server `.env` (and later updating the fabric deploy script to do this automatically)
+* Then gmail was still refusing to send because the server in Ohio was flagged as suspicious (which makes sense) - it took me a while to figure out this was the reason, but it was fixed by logging into the gmail account and accepting the activity.
+* Finally the test was failing because the real server doesn't use Django's `LiveServerTestCase`, which meant the `django.mail.outbox` feature didn't exist
+  * this was fixed by using Python's POP3 email client library to send actual mail to a test account when running FT's agaisnt the staging server. see `test_login.py`
+  * pro-tip though: this could get dicey since tests could potentially read emails from old tests. so a third party service for testing this kinda stuff might be better
+
+For the pre-authentication failure in `test_my_lists` - the issue was that sessions were being created on a test database before, and that doesn't work on the real server.
+
+* This was quite weird to fix, and likely has multiple approaches that also vary by framework. But I think the main idea is that for something like this you need a way to interact with the staging server's database
+  * in this case we made a new Django command for `manage.py` (by creating a module and importing a base command class), that would create sessions in an arbitrary context
+  * then we refactored the test so that if we were testing agaisnt the staging server, the new `manage.py` command would be used to store the session on the staging server (mostly by just running in that context)
+  * Finally we needed to remember to reset staging server database in between tests, which was done similarly by calling `manage.py` in the server context
+
+This chapter was definitely a bit confusing with the different Django quirks and environments, but the key ideas are:
+
+* Fixtures have to work remotely - Django handles some of this under the hood for us, like interacting with databases. But on a real server we need to handle this directly.
+* Be super careful when interacting with real databases in FT's, its very risky. If possible, have hard-coded guards agaisnt accidentally manipulating your production server's database
+* Staging servers are the final word, since they can catch issues that FT's might not when testing locally
+* Logging is super important for debugging server side stuff, and tools usually have some way of enabling that.
+
+### Reminders:
+
+Deploy
+
+    git push
+    cd deploy_tools
+    fab deploy --host=ubuntu@superlists-staging.scalesdavid.com
+
+Restart (on server)
+
+    sudo systemctl daemon-reload
+    sudo systemctl restart gunicorn-superlists-staging.scalesdavid.com
+    # start server logs for gunicorn process
+    sudo journalctl -f -u gunicorn-superlists-staging.scalesdavid.com
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
