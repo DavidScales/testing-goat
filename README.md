@@ -2221,6 +2221,41 @@ Restart (on server)
     # start server logs for gunicorn process
     sudo journalctl -f -u gunicorn-superlists-staging.scalesdavid.com
 
+
+## Chapter 22: Outside-in TDD
+
+* This chapter makes the development pattern used so far, starting at the most abstract level and moving downwards, more explicit
+  * example: if you want to add a "My lists" page, there's temptation to go straight to the model layer and add an "owner" property to lists. This makes sense at first because you're never over-extending yourself - you're always working on one complete piece at a time. However, the weakness here is that you basically don't know where you are going. so it makes more sense to start at the top.
+
+> One problem that can result is to build inner components that are more general or more capable than we actually need, which is a waste of time, and an added source of complexity for your project. Another common problem is that you create inner components with an API which is convenient for their own internal design, but which later turns out to be inappropriate for the calls your outer layers would like to make…​worse still, you might end up with inner components which, you later realise, don’t actually solve the problem that your outer layers need solved
+
+* Outside-in solves the above issues.
+  * e.g., presentation layer > controllers / views > models
+
+* However, you can run into an issue - what if you have to move down a layer (or layers) without tests passing in the layer above? E.g., view tests for a feature are failing, but you need to make changes to the model to progress the view tests. This is not testing goat sanctioned activity.
+  * one solution is to rewrite the higher level test (view in this case) to be isolated from the layers below (model in this case) using mocks
+
+> On the one hand, it’s a lot more effort to use mocks, and it can lead to tests that are harder to read. On the other hand, imagine if our app was more complex, and there were several more layers between the outside and the inside. Imagine leaving three or four or five layers of tests, all failing while we wait to get to the bottom layer to implement our critical feature. While tests are failing, we’re not sure that layer really works, on its own terms, or not. We have to wait until we get to the bottom layer.
+
+In this chapter we take the shortcut, and leave the view test failing. Next chapter explores the alternative of using a mock.
+
+Aside - the `@property` decorator in Python is awesome and lets you make a class method accessible like a class attribute, isolating the property iterface from implementation
+
+    @property
+    def name(self):
+      return self.item_set.first().text
+
+## Chapter 23: Isolation tests?
+
+Notes:
+* isolation tests
+  * view tests w/ forms mocked
+  * forms tests w/ models mocked
+  * etc.
+  * update "lower" form and model tests to support the contracts described by thier respective mocks "above"
+* cleaned up / remove redundant integrated tests
+  * integrated vs integration tests
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
