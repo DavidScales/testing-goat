@@ -2245,16 +2245,145 @@ Aside - the `@property` decorator in Python is awesome and lets you make a class
     def name(self):
       return self.item_set.first().text
 
-## Chapter 23: Isolation tests?
+## Chapter 23: Test Isolation & Listening to your tests
 
-Notes:
-* isolation tests
-  * view tests w/ forms mocked
-  * forms tests w/ models mocked
-  * etc.
-  * update "lower" form and model tests to support the contracts described by thier respective mocks "above"
-* cleaned up / remove redundant integrated tests
-  * integrated vs integration tests
+* In the previous chapter we implemented a feature by moving down from the most abstract layer (templates -> views -> forms -> models). This was TDD Outside-in. We got to a point where we needed to move on to the model layer to progress, even though a view test was failing (the view test required changing the models). This mean that test was "integrated", in the sense that there was depencency between the layers.
+  * The pro here, is that it can be useful to catch issues between layers - integrated tests at one layer will fail if the layers below fail
+  * The con here is that in complex apps, you can't really be sure that all the layers work on their own. There could be hidden issues
+  * Additionally, integration tests tend to drive better design (see below)
+
+* To create isolated tests, you basically mock out the layer below.
+  * So if you're writing a view test, and you can't get it to pass with view code, because model code is missing, you just mock out the model aspect in the view test, creating a kind of contract defining how you expect the model to behave. Now you can test the view layer by itself, and be sure that it works even without a model implemented
+  * aside - this assumes the mock contracts are upheld eventually by the model, so mocks in one layer should drive the tests in the layers below
+    * pro-tip: create a placeholder test with `self.fail`
+  * since mocks can be a little... generous(?) you'll sometimes need to test *how* application code works, and not just if it works. for example
+    * If you mock a model `List` and `ItemForm` (see comments):
+
+            @patch('lists.views.List')
+            @patch('lists.views.ItemForm')
+            def test_list_owner_is_saved_if_user_is_authenticated(
+              self, mockItemFormClass, mockListClass
+            ):
+              user = User.objects.create(email='a@b.com')
+              self.client.force_login(user)
+              self.client.post('/lists/new', data={'text': 'new item'})
+              mock_list = mockListClass.return_value
+              # and check that an owner property is assigned to the mocked List
+              self.assertEqual(mock_list.owner, user)
+
+    * it's possible for bad application code to pass the test (see comments):
+
+            if form.is_valid():
+              list_ = List()
+              list_.save()
+              # list.owner is set after .save() - that's ok for the mock,
+              # but the real List class wouldn't have saved the property
+              list_.owner = request.user
+              form.save(for_list=list_)
+              return redirect(list_)
+
+    * so instead
+      > Here’s how we could test the sequence of events using mocks —​ you can mock out a function, and use it as a spy to check on the state of the world at the moment it’s called
+
+            @patch('lists.views.List')
+            @patch('lists.views.ItemForm')
+            def test_list_owner_is_saved_if_user_is_authenticated(
+              self, mockItemFormClass, mockListClass
+            ):
+              user = User.objects.create(email='a@b.com')
+              self.client.force_login(user)
+              mock_list = mockListClass.return_value
+              def check_owner_assigned():
+                  self.assertEqual(mock_list.owner, user)
+              mock_list.save.side_effect = check_owner_assigned
+              self.client.post('/lists/new', data={'text': 'new item'})
+              mock_list.save.assert_called_once_with()
+
+    * which instead tests that the "owner" assertion is called as a *side effect* of the `save`, and also check that `save` does in fact get called. This is a common pattern for testing methods where order of operations matters
+  * However, this test is getting a little ugly, and ugly tests that become too long and complicated can signal that application code needs to be refactored
+    * you can often abstract the code into a helper, and push it down a layer
+    * this can be especially helpful if it means keeping ORM code out of higher layers, and instead using helpers in the model layer. This lets you keep your higher layers free from the ORM API, instead relying on your own domain logic that is clearer and less constrained by implementation (looser coupling in the application)
+    * Example of complex test signaling a need for encapsulation:
+
+            # ugly form test
+
+            class NewListFormTest(unittest.TestCase):
+
+              @patch('lists.forms.List')
+              @patch('lists.forms.Item')
+              def test_save_creates_new_list_and_item_from_post_data(
+                self, mockItem, mockList
+              ):
+                mock_item = mockItem.return_value
+                mock_list = mockList.return_value
+                user = Mock()
+                form = NewListForm(data={'text': 'new item text'})
+                form.is_valid()
+
+                def check_item_text_and_list():
+                  self.assertEqual(mock_item.text, 'new item text')
+                  self.assertEqual(mock_item.list, mock_list)
+                  self.assertTrue(mock_list.save.called)
+
+                mock_item.save.side_effect = check_item_text_and_list
+                form.save(owner=user)
+                self.assertTrue(mock_item.save.called)
+
+            # instead, abstract logic in the model
+
+            def save(self):
+              List.create_new(first_item_text=self.cleaned_data['text'])
+
+            # and just test that the abstracted method is called correctly
+
+            class NewListFormTest(unittest.TestCase):
+
+              @patch('lists.forms.List.create_new')
+              def test_save_creates_new_list_from_post_data_if_user_not_authenticated(
+                self, mock_List_create_new
+              ):
+                user = Mock(is_authenticated=False)
+                form = NewListForm(data={'text': 'new item text'})
+                form.is_valid()
+                form.save(owner=user)
+                mock_List_create_new.assert_called_once_with(
+                  first_item_text='new item text'
+                )
+
+      * again, this creates a contract between the forms and the models, since we mocked `List.create_new`, which just has as a placeholder while we continue to developer the forms layer
+
+              class List(models.Model):
+
+                def create_new():
+                  pass
+
+      * so we would want to write a placeholder test(s) in the models layer for this contract
+
+* Misc.
+  * Isolated tests are less about thinking in terms of "real" behavior, and more about thinking in terms of the contract or colloboration between layers, where we mock layers with "wishful thinking"
+    * Example of an isolated test
+
+            @patch('lists.views.NewListForm')
+            class NewListViewUnitTest(unittest.TestCase):
+
+                def setUp(self):
+                    self.request = HttpRequest()
+                    self.request.POST['text'] = 'new list item'
+
+                def test_passes_POST_data_to_NewListForm(self, mockNewListForm):
+                    new_list2(self.request)
+                    mockNewListForm.assert_called_once_with(data=self.request.POST)
+
+            # again, mocked NewListForm is just a placeholder in forms layer
+
+            class NewListForm(object):
+              pass
+
+    * Uses `unittest.TestCase` instead of Django's `TestCase`, which handles setup stuff for us. Instead, we write our own setup without the (overly integrated) Django Test Client
+  * If you start with intergrated tests, you can keep them around as sanity checks for layer-interactions, and just `@unittest.skip` them during development of isolated tests
+  * obviously at the model layer, you only want integrated tests, since testing the model layer is basically testing that the ORM is working with the underlying DB layer
+
+**SUPER NOTE:** Chapters 22 & 23 are probably most useful for review, and they really sum up a lot of what's been covered in the book so far
 
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
