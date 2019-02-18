@@ -2385,6 +2385,217 @@ Aside - the `@property` decorator in Python is awesome and lets you make a class
 
 **SUPER NOTE:** Chapters 22 & 23 are probably most useful for review, and they really sum up a lot of what's been covered in the book so far
 
+## Chapter 24: Continuous Integration
+
+> As our site grows, it takes longer and longer to run all of our functional tests. If this continues, the danger is that we’re going to stop bothering. Rather than let that happen, we can automate the running of functional tests by setting up a "Continuous Integration" or CI server. That way, in day-to-day development, we can just run the FT that we’re working on at that time, and rely on the CI server to run all the tests automatically and let us know if we’ve broken anything accidentally.
+
+The current cool CI tool is Jenkins
+
+### Get a server for CI
+
+> It’s not a good idea to install Jenkins on the same server as our staging or production servers. Apart from anything else, we may want Jenkins to be able to reboot the staging server!
+
+So I spun up a new AWS ec2 instance with the usual config, created ssh keys, assigned it an elastic IP, etc.
+
+### Install Jenkins and dependencies
+
+Install Jenkins on my new CI server - followed instructions in [official docs](https://jenkins.io/doc/book/installing/):
+
+    wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
+    sudo sh -c 'echo deb http://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'
+    sudo apt-get update
+    sudo apt-get install jenkins
+
+Aside
+
+  * Java isn't installed by default on the ec2 instance, so when I tried to install Jenkins, it failed to start
+  * I looked at the Java documentation for installing on Linux but that didn't help, and the first few searches didn't really illuminate how to install via the command line on Linux (which is surpising because I would think it would be really commmon). When I used `java -v` to confirm that I didnt have Java, it actually logged the commands needed to install a few versions, including for version 8 ([version 8 is the only version supported by Jenkins](https://jenkins.io/doc/administration/requirements/java/)). So I just did that:
+
+        sudo apt install openjdk-8-jre-headless
+
+  * Then I restarted Jenkins now that I had Java:
+
+        sudo systemctl start jenkins.service
+
+Then I installed some other dependencies:
+
+    root@server:$ add-apt-repository ppa:deadsnakes/ppa
+    root@server:$ apt update
+    root@server:$ apt install firefox python3.6-venv python3.6-dev xvfb
+    # and, to build fabric3:
+    root@server:$ apt install build-essential libssl-dev libffi-dev
+
+Where `ppa:deadsnakes/ppa` is like a fork of Python just for Ubuntu or something like that, and `xvfb` is a virtual frame buffer for unix (since my virtual machine doesn't have a GUI for running browsers).
+
+Installed geckodriver:
+
+    root@server:$ wget https://github.com/mozilla/geckodriver/releases\
+    /download/v0.24.0/geckodriver-v0.24.0-linux64.tar.gz
+    root@server:$ tar -xvzf geckodriver-v0.24.0-linux64.tar.gz
+    root@server:$ mv geckodriver /usr/local/bin
+    root@server:$ geckodriver --version
+    geckodriver 0.24.0
+
+Since I opened all ports on my instance, I could access Jenkins directly on 8080 of my elastic IP http://13.52.152.75:8080/ and proceed with intial setup / config.
+
+Then I installed `ShiningPanda` and `xcfb` plugins (Manage Jenkins > Manage Plugins), & configured their locations to Jenkins (Manage Jenkins > Global Tool Configuration) - Pyyhon is `/usr/bin/python3` and `xvfb` is `/usr/bin/`.
+
+### Setting up nginx
+
+> To finish off securing your Jenkins instance, you’ll want to set up HTTPS, by getting nginx HTTPS to use a self-signed cert, and proxy requests from port 443 to port 8080. Then you can even block port 8080 on the firewall
+
+Using my chapter 10 notes as a reference, I installed Nginx on the CI server:
+
+    sudo apt install nginx
+    sudo systemctl start nginx
+
+And configured it to proxy web requests to Jenkins (which is running on 8080):
+
+    # /etc/nginx/nginx.conf, inside HTTP block
+
+    server {
+        # required for Let's Encrypt certbot
+        server_name jenkins.scalesdavid.com;
+
+        listen 80;
+        # listen 443; don't add this actually, Let's Encrypt needs 443 to be unconfigured
+
+        location / {
+            proxy_pass http://localhost:8080;
+        }
+    }
+
+Then
+* verified the config: `sudo nginx -t`
+  * this actually caught a mistake that I had made, trying to put the [server block on the top level](https://stackoverflow.com/questions/41766195/nginx-emerg-server-directive-is-not-allowed-here/41766811) instead of inside the `http` block.
+* and restart: `sudo systemctl reload nginx`
+* then test by visiting `STATIC_IP:8080`
+  * Note: I had to remove default `/etc/nginx/sites-enabled/default`, otherwise the default welcome page was served instead of Jenkins
+
+* finally, I configured DNS - added an A record in Bluehost so jenkins.scalesdavid.com points to my CI server's elastic IP
+  * waited about an hour or so for the record to propogate
+
+### HTTPS and SSL certificates with Let's Encrypt
+
+Let's Encrypt has basically automated [the process](https://certbot.eff.org/lets-encrypt/ubuntubionic-nginx) for common servers like Nginx:
+
+    # install stuff
+    $ sudo apt-get update
+    $ sudo apt-get install software-properties-common
+    $ sudo add-apt-repository universe
+    $ sudo add-apt-repository ppa:certbot/certbot
+    $ sudo apt-get update
+    $ sudo apt-get install certbot python-certbot-nginx
+
+    # run automated tool
+    $ sudo certbot --nginx
+
+This gets and installs a certificate & private key for the `server_name` in `/etc/letsencrypt`, and updates the Nginx config file `/etc/nginx/nginx.confd`:
+
+* To listen on 443 (HTTPS) & point the server to my certificate and private key:
+
+	server {
+      server_name jenkins.scalesdavid.com;
+
+      location / {
+          proxy_pass http://localhost:8080;
+      }
+
+      listen 443 ssl; # managed by Certbot
+      ssl_certificate /etc/letsencrypt/live/jenkins.scalesdavid.com/fullchain.pem; # managed by Certbot
+      ssl_certificate_key /etc/letsencrypt/live/jenkins.scalesdavid.com/privkey.pem; # managed by Certbot
+      include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+      ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+	}
+
+* And optionally to redirect HTTP traffic to HTTPS:
+
+	server {
+      if ($host = jenkins.scalesdavid.com) {
+          return 301 https://$host$request_uri;
+      } # managed by Certbot
+
+      server_name jenkins.scalesdavid.com;
+      listen 80;
+      return 404; # managed by Certbot
+	}
+
+The certificate is only valid for 90 days, but
+
+>The Certbot packages on your system come with a cron job that will renew your certificates automatically before they expire
+
+Which lives at `/etc/cron.d/certbot` and can be tested with `sudo certbot renew --dry-run`.
+
+Finally, re-verify Nginx config & restart as usual:
+
+    sudo nginx -t
+    sudo systemctl reload nginx
+
+Now I can access Jenkins on my CI server via https://jenkins.scalesdavid.com (and the HTTP version also, which redirects)!
+
+TODO: now I can block off open ports since 80 & 443 redirect to 8080. Same for other instance(s)
+TODO: set up HTTPS and SSL cert for actual site too
+
+### Getting a Jenkins project set up
+
+New Item > "Superlists" as name, choose "Freestyle project"
+
+Meta config:
+* Add GitHub repo
+* Set build trigger to periodic `H * * * *` (hourly)
+* set Xvfb (virtual frame buffer AKA a display for the browser) to start before the build & quit after
+
+TODO: probably better to switch to monitoring per commit rather than just hourly?
+
+For the actual build
+
+* use Virtualenv builder to run Python in the virtual env:
+
+      pip install -r requirements.txt
+      pip install -r test-requirements.txt
+      python manage.py test lists accounts
+      python manage.py test functional_tests
+
+**Pro-tip**
+* created `test-requirements.txt` to track requirements needed by tests but not application
+* `pip freeze` will tell you the versions of everything you have installed right now
+  * ex: `pip install package && pip freeze > requirements.txt`. No native equivelant to `npm install package --save-dev`
+
+Jenkins UI > "Build Now" && view "Console Output"
+
+Everything successfully installed and built!
+
+* Note: didn't work on first try, the `ShiningPanda` package was missing dependency. I just installed it manually on the CI server `sudo apt-get install python3-distutils`.
+
+### Screendumps for debugging
+
+Then added HTML & screenshots dumps to my FT tear down method, so that if tests fail I can more easily debug. Very useful, see `functional_tests/base.py`.
+
+TODO: would probably want a chron job to periodically remove these files
+
+These files are then viewable in the Jenkins UI "Workspace", where Jenkins stores source code and runs tests in.
+
+### JS test runner
+
+Since we arent going to actually look at the QUnit JS tests in the browser, we need a command line test runner to test the JS unit tests.
+
+I'm going to skip this for now.
+ * First, we need PhantomJS for a headless browser, but thats deprecated and I didn't find any strong alternatives.
+ * I could probably get a headless browser set up, but this actually seems like an integration test IMO? Since there is JS-DOM interaction. I'd feel more comfortable just sticking with Selenium for this stuff. I'll come back to this later.
+
+### Misc
+
+* Coming back the next day and reviewing the hourly tests (running overnight), there are actual random failures for `test_error_messages_are_cleared_on_input` & `test_layout_and_styling` FTs. Which could be a possible timing issue (since its not consistent and both are related to static JS/CSS files), so I'm going to bump the timeout for the `wait` helper in `functional_tests/base.py`.
+
+  TODO: recheck tests tomorrow
+
+* TODO: automate staging with Jenkins
+
+  > Perhaps more interestingly, you can use your CI server to automate your staging tests as well as your normal functional tests. If all the FTs pass, you can add a build step that deploys the code to staging, and then reruns the FTs against that—​automating one more step of the process, and ensuring that your staging server is automatically kept up to date with the latest code.
+
+  > It has the side benefit of testing your automated deploy scripts.
+
+
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
 * TODO: consider switching over ec2 instance from Ohio to California
