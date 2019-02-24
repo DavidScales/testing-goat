@@ -29,3 +29,11 @@ def new_list(request):
 def my_lists(request, email):
   owner = User.objects.get(email=email)
   return render(request, 'my_lists.html', {'owner': owner})
+
+def share_list(request, list_id):
+  # TODO: probably will want to abstract into form like the others - gives validation as well
+  list_ = List.objects.get(id=list_id)
+  email = request.POST['share']
+  list_.shared_with.add(email)
+  list_.save()
+  return redirect(list_)

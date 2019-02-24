@@ -29,6 +29,7 @@ class FunctionalTest(StaticLiveServerTestCase):
 
   def tearDown(self):
     if self._test_has_failed():
+      # TODO: not cleaning up multiple browser windows for test_can_share_a_list_with_another_user
       if not os.path.exists(SCREEN_DUMP_LOCATION):
         os.makedirs(SCREEN_DUMP_LOCATION)
       for ix, handle in enumerate(self.browser.window_handles):

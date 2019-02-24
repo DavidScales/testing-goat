@@ -106,7 +106,7 @@ class ListViewTest(TestCase):
     self.assertIsInstance(response.context['form'], ExistingListItemForm)
     self.assertContains(response, 'name="text"')
 
-  def test_ducplicate_item_validation_errors_end_up_on_lists_page(self):
+  def test_duplicate_item_validation_errors_end_up_on_lists_page(self):
     list1 = List.objects.create()
     item1 = Item.objects.create(list = list1, text = 'textey')
     response = self.client.post(
@@ -196,3 +196,25 @@ class NewListViewUnitTest(unittest.TestCase):
     mock_form.is_valid.return_value = False
     new_list(self.request)
     self.assertFalse(mock_form.save.called)
+
+class ShareListIntegratedTest(TestCase):
+  # TODO: could mock for isolation tests
+  # TODO: user is only added to shared_with if they already exist
+
+  def test_post_redirects_to_list_page(self):
+    list_ = List.objects.create()
+    response = self.client.post(
+      f'/lists/{list_.id}/share_list/', # hardcoded?
+      data = { 'share': 'a@b.com' }
+    )
+    self.assertRedirects(response, f'/lists/{list_.id}/')
+
+  # TODO: contains model code here, probably want helper or form
+  def test_shared_email_is_added_to_list(self):
+    user = User.objects.create(email='a@b.com')
+    list_ = List.objects.create()
+    self.client.post(
+      f'/lists/{list_.id}/share_list/', # hardcoded?
+      data = { 'share': user.email }
+    )
+    self.assertIn(user, list_.shared_with.all())
