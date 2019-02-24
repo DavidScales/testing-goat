@@ -35,5 +35,4 @@ def share_list(request, list_id):
   list_ = List.objects.get(id=list_id)
   email = request.POST['share']
   list_.shared_with.add(email)
-  list_.save()
   return redirect(list_)

@@ -198,8 +198,6 @@ class NewListViewUnitTest(unittest.TestCase):
     self.assertFalse(mock_form.save.called)
 
 class ShareListIntegratedTest(TestCase):
-  # TODO: could mock for isolation tests
-  # TODO: user is only added to shared_with if they already exist
 
   def test_post_redirects_to_list_page(self):
     list_ = List.objects.create()
@@ -207,14 +205,15 @@ class ShareListIntegratedTest(TestCase):
       f'/lists/{list_.id}/share_list/', # hardcoded?
       data = { 'share': 'a@b.com' }
     )
-    self.assertRedirects(response, f'/lists/{list_.id}/')
+    self.assertRedirects(response, list_.get_absolute_url())
 
-  # TODO: contains model code here, probably want helper or form
   def test_shared_email_is_added_to_list(self):
+    # TODO: user is only added to shared_with if they already exist
     user = User.objects.create(email='a@b.com')
     list_ = List.objects.create()
     self.client.post(
       f'/lists/{list_.id}/share_list/', # hardcoded?
       data = { 'share': user.email }
     )
+    # TODO: could mock for isolation tests?
     self.assertIn(user, list_.shared_with.all())
