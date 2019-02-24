@@ -2494,31 +2494,31 @@ This gets and installs a certificate & private key for the `server_name` in `/et
 
 * To listen on 443 (HTTPS) & point the server to my certificate and private key:
 
-	server {
-      server_name jenkins.scalesdavid.com;
+      server {
+          server_name jenkins.scalesdavid.com;
 
-      location / {
-          proxy_pass http://localhost:8080;
+          location / {
+              proxy_pass http://localhost:8080;
+          }
+
+          listen 443 ssl; # managed by Certbot
+          ssl_certificate /etc/letsencrypt/live/jenkins.scalesdavid.com/fullchain.pem; # managed by Certbot
+          ssl_certificate_key /etc/letsencrypt/live/jenkins.scalesdavid.com/privkey.pem; # managed by Certbot
+          include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+          ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
       }
-
-      listen 443 ssl; # managed by Certbot
-      ssl_certificate /etc/letsencrypt/live/jenkins.scalesdavid.com/fullchain.pem; # managed by Certbot
-      ssl_certificate_key /etc/letsencrypt/live/jenkins.scalesdavid.com/privkey.pem; # managed by Certbot
-      include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
-      ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
-	}
 
 * And optionally to redirect HTTP traffic to HTTPS:
 
-	server {
-      if ($host = jenkins.scalesdavid.com) {
-          return 301 https://$host$request_uri;
-      } # managed by Certbot
+      server {
+          if ($host = jenkins.scalesdavid.com) {
+              return 301 https://$host$request_uri;
+          } # managed by Certbot
 
-      server_name jenkins.scalesdavid.com;
-      listen 80;
-      return 404; # managed by Certbot
-	}
+          server_name jenkins.scalesdavid.com;
+          listen 80;
+          return 404; # managed by Certbot
+      }
 
 The certificate is only valid for 90 days, but
 
@@ -2534,6 +2534,7 @@ Finally, re-verify Nginx config & restart as usual:
 Now I can access Jenkins on my CI server via https://jenkins.scalesdavid.com (and the HTTP version also, which redirects)!
 
 TODO: now I can block off open ports since 80 & 443 redirect to 8080. Same for other instance(s)
+
 TODO: set up HTTPS and SSL cert for actual site too
 
 ### Getting a Jenkins project set up
@@ -2585,7 +2586,7 @@ I'm going to skip this for now.
 
 ### Misc
 
-* Coming back the next day and reviewing the hourly tests (running overnight), there are actual random failures for `test_error_messages_are_cleared_on_input` & `test_layout_and_styling` FTs. Which could be a possible timing issue (since its not consistent and both are related to static JS/CSS files), so I'm going to bump the timeout for the `wait` helper in `functional_tests/base.py`.
+* Coming back the next day and reviewing the hourly tests (running overnight), there are actual random failures for `test_error_messages_are_cleared_on_input` & `test_layout_and_styling` FTs. Which could be a possible timing issue (since the failures are not consistent and both are related to static JS/CSS files), so I'm going to bump the timeout for the `wait` helper in `functional_tests/base.py`.
 
   TODO: recheck tests tomorrow
 
@@ -2595,6 +2596,41 @@ I'm going to skip this for now.
 
   > It has the side benefit of testing your automated deploy scripts.
 
+* Jenkins is logging tests in UTC time
+  * I [changed the CI server's time](https://www.thegeekstuff.com/2010/09/change-timezone-in-linux/) to PST, but I may have to do something more specific for Jenkins
+
+## Chapter 25: The Page Pattern
+
+This chapter implements an FT for sharing lists via email. The unit tests and application code are left as an exercise to the reader. From my commit message:
+
+    feat: list sharing
+
+    This commit
+    * updates list.html to show the list owner & emails that the list is shared with
+    * updates my_lists.html to include lists shared with me
+    * updates list.html to have input for sharing list with other users by email address (user must exist)
+    * adds integrated view test (ShareListIntegratedTest) for list sharing
+    * adds sharing url & view (share_list)
+    * adds an "owner" relationship to List model
+
+* The main concept in this chapter is [Page Pattern](https://www.seleniumhq.org/docs/06_test_design_considerations.jsp#page-object-design-pattern) for FT's.
+
+In this pattern, pages and the various things that they can do are abstracted into classes. Seems like a solid idea.
+
+> The idea behind the Page pattern is that it should capture all the information about a particular page in your site, so that if, later, you want to go and make changes to that page—​even just simple tweaks to its HTML layout, for example—​you have a single place to go to adjust your functional tests, rather than having to dig through dozens of FTs
+
+See `list_page.py` & `my_lists_page.py` for examples of "Pages", and `test_sharing.py` for an example of thier use in tests.
+
+TODO: consider refactoring other FT's to use the Page pattern
+
+* We also use the [unittest.TestCase.addCleanup](https://docs.python.org/3/library/unittest.html#unittest.TestCase.addCleanup) (see `test_sharing.py`).
+
+> alternative to the `tearDown` function as a way of cleaning up resources used during the test. It’s most useful when the resource is only allocated halfway through a test, so you don’t have to spend time in `tearDown` figuring out what does or doesn’t need cleaning up.
+
+* Additionally, we return self in some methods to enable [method chaining](https://en.wikipedia.org/wiki/Method_chaining)
+
+
+TODO: move on to new/personal project
 
 ---
 * TODO: maybe remove all the amazon tempory instance URLs from ~/.ssh/known_hosts
